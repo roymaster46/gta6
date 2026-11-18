@@ -6,6 +6,13 @@
 // police helicopter joins from above and the PD sets roadblocks across the
 // road ahead: it spotlights Leo, calls the ground units in faster, and can
 // be shot down for a bounty.
+// New in this revision: NOTORIETY. Heat is the chase you are in right now;
+// notoriety is the reputation you carry between chases. Every crime adds a
+// slice of notoriety (0-100), it only fades after a long clean stretch, and
+// it makes the PD sharper: at 60+ the helicopter flies at 3 stars instead
+// of 4, ground units are called in faster, and Pay-n-Spray charges a
+// surcharge for a face the whole precinct recognises. Clearing your stars
+// never clears your name — only staying clean does.
 import { clamp, dist, angleTo, turnToward, rand } from './utils.js';
 import { WORLD, randomFreePoint, collideBuildings } from './city.js';
 import { makeCar, CAR_MODELS } from './vehicles.js';
@@ -21,7 +28,45 @@ export function createWanted() {
     maxCops: 0,
     heliTimer: 0,     // respawn timer for the helicopter
     roadblockTimer: 18, // seconds until the PD tries its first roadblock
+    notoriety: 0,     // 0..100: the name Leo carries between chases
+    notorietyTimer: 0, // quiet seconds banked toward fading notoriety
   };
+}
+
+// Notoriety bands, for the HUD police panel: what the precinct calls Leo.
+export const NOTORIETY_BANDS = [
+  { min: 0, name: 'Unknown' },
+  { min: 15, name: 'Known' },
+  { min: 35, name: 'Notorious' },
+  { min: 60, name: 'Wanted' },
+  { min: 85, name: 'Most Wanted' },
+];
+export function notorietyLevel(wanted) {
+  const n = wanted.notoriety || 0;
+  let band = NOTORIETY_BANDS[0];
+  for (const b of NOTORIETY_BANDS) if (n >= b.min) band = b;
+  const idx = NOTORIETY_BANDS.indexOf(band);
+  const next = NOTORIETY_BANDS[idx + 1];
+  return {
+    name: band.name,
+    value: n,
+    level: idx,
+    // Progress into the current band (1.0 at the top band).
+    into: next ? (n - band.min) / (next.min - band.min) : 1,
+  };
+}
+
+// The star level at which the helicopter flies: 4 normally, but a
+// notorious Leo (60+) gets the heli at 3 stars — the PD does not wait.
+export function heliStarThreshold(wanted) {
+  return (wanted.notoriety || 0) >= 60 ? 3 : 4;
+}
+
+// How fast the PD calls ground units in: a notorious Leo is answered
+// faster — the spawn interval shrinks up to 40% at full notoriety.
+export function copSpawnInterval(wanted, heliUp) {
+  const base = heliUp ? 0.8 : 1.2;
+  return base * (1 - 0.4 * ((wanted.notoriety || 0) / 100));
 }
 
 // Heat thresholds per star: reaching 100 heat adds a star.
@@ -30,6 +75,10 @@ export function addCrime(wanted, amount, time) {
   wanted.heat += amount;
   wanted.lastCrime = time;
   wanted.decayTimer = 0;
+  wanted.notorietyTimer = 0;
+  // A quarter of every crime sticks to Leo's name, up to 100. Small crimes
+  // (a gunshot, a jacked car) add a little; a bank job adds a lot.
+  wanted.notoriety = Math.min(100, (wanted.notoriety || 0) + amount * 0.25);
   while (wanted.stars < 5 && wanted.heat >= STAR_HEAT[wanted.stars + 1]) {
     wanted.stars++;
   }
@@ -50,6 +99,18 @@ export function updateWanted(wanted, dt, time, committingCrime) {
       wanted.heat = Math.max(0, wanted.heat - dt * (wanted.stars <= 2 ? 3.5 : 1.6));
       while (wanted.stars > 0 && wanted.heat < STAR_HEAT[wanted.stars]) wanted.stars--;
     }
+  }
+  // Notoriety is stickier than heat: it only starts fading after 30 clean
+  // seconds with no stars, and then only 0.5 points a second — a bank job
+  // (25 notoriety) takes the better part of a minute of clean driving to
+  // live down, and a full 100 takes over three minutes.
+  if (wanted.stars === 0 && time - wanted.lastCrime > 30) {
+    wanted.notorietyTimer += dt;
+    if (wanted.notorietyTimer > 2) {
+      wanted.notoriety = Math.max(0, (wanted.notoriety || 0) - dt * 0.5);
+    }
+  } else {
+    wanted.notorietyTimer = 0;
   }
 }
 
@@ -89,8 +150,9 @@ export function spawnHeli(game) {
 
 export function updateHeli(game, dt, time) {
   const wanted = game.wanted;
-  // The heli only flies at 4-5 stars; it leaves when the heat drops.
-  if (wanted.stars < 4) {
+  // The heli only flies at the threshold for Leo's notoriety (4 stars
+  // normally, 3 when he is notorious); it leaves when the heat drops.
+  if (wanted.stars < heliStarThreshold(wanted)) {
     if (game.heli) game.heli = null;
     return;
   }
@@ -137,8 +199,9 @@ export function spawnPolice(game, dt) {
   const foot = game.cops.filter((c) => !c.inCar).length;
   const cars = game.cops.filter((c) => c.inCar).length;
   if (wanted.copSpawnTimer > 0) return;
-  // The helicopter overhead calls ground units in faster.
-  wanted.copSpawnTimer = game.heli ? 0.8 : 1.2;
+  // The helicopter overhead calls ground units in faster, and a notorious
+  // Leo is answered faster still (copSpawnInterval).
+  wanted.copSpawnTimer = copSpawnInterval(wanted, !!game.heli);
   const px = game.player.x, py = game.player.y;
   const spawnAt = () => {
     const a = rand(0, Math.PI * 2);
@@ -314,8 +377,11 @@ function lerpSpeed(v, target, dt) {
 }
 
 // Pay-n-spray: clear wanted for a fee; returns the fee or -1 when unaffordable.
+// Clearing stars never clears notoriety — and a notorious face costs
+// extra: $50 surcharge at 60+ notoriety, because the whole precinct
+// recognises the car by now.
 export function payNSpray(game) {
-  const fee = 50 + game.wanted.stars * 50;
+  const fee = 50 + game.wanted.stars * 50 + ((game.wanted.notoriety || 0) >= 60 ? 50 : 0);
   if (game.player.money < fee) return -1;
   game.player.money -= fee;
   clearWanted(game.wanted);

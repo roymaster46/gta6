@@ -8,7 +8,9 @@
 // golden-hour sky at dusk and dawn, screen shake on crashes, skid marks
 // behind handbrake turns, a stamina bar and a district pill on the HUD,
 // side-job markers on the world and the minimap, the Moto Sol scooter with
-// its rider, and a four-row upgrade shop.
+// its rider, and a four-row upgrade shop. Newest: a notoriety row on the PD
+// RESPONSE panel, chop-shop and impound hints with minimap dots, and pause
+// stats for vigilante takedowns and chop-shop sales.
 import { clamp, lerp, dist, TAU, hash2, repLevel } from './utils.js';
 import { WORLD, ROAD_W, LANDMARKS, districtAt } from './city.js';
 import { fmtMoney, fmtTime, fmtCountdown } from './utils.js';
@@ -17,6 +19,7 @@ import { phaseAt, clockLabel, isGoldenHour } from './daynight.js';
 import { UPGRADES, upgradeLevel, upgradeCost } from './garage.js';
 import { nitroReady, nitroActive } from './garage.js';
 import { sideJobTarget } from './sidejobs.js';
+import { notorietyLevel } from './police.js';
 
 const SKY = '#ffd9a0';
 const GRASS = '#8ec06a';
@@ -781,7 +784,9 @@ function drawMissionCard(ctx, game) {
 
 // PD response panel: the units on Leo right now, nearest first, with their
 // distance and what they are doing (CHASE / SEARCH / ROADBLOCK). Hidden
-// while the player is clean.
+// while the player is clean. The bottom row is Leo's notoriety — the name
+// the precinct knows him by, which decides how fast the PD answers and
+// whether the helicopter flies at 3 stars instead of 4.
 function drawPolicePanel(ctx, game) {
   const wanted = game.wanted;
   if (!wanted || wanted.stars === 0 || game.cops.length === 0) return;
@@ -791,7 +796,12 @@ function drawPolicePanel(ctx, game) {
     .map((c) => ({ c, d: Math.round(dist(c.x, c.y, p.x, p.y)) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, 4);
-  const h = 30 + units.length * 18 + 8;
+  // Layout is computed top-down so rows never overlap: header, up to four
+  // unit rows, an optional "+N more" line, then the notoriety row.
+  const rowsBottom = y + 40 + units.length * 18;
+  const extraLine = game.cops.length > 4 ? 18 : 0;
+  const notoY = rowsBottom + extraLine + 18;
+  const h = (notoY - y) + 10;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   roundRect(ctx, x, y, w, h, 8); ctx.fill();
@@ -823,8 +833,15 @@ function drawPolicePanel(ctx, game) {
   if (game.cops.length > 4) {
     ctx.fillStyle = '#c8d8e8';
     ctx.font = '11px sans-serif';
-    ctx.fillText(`+${game.cops.length - 4} more units in the search zone`, x + 12, y + h - 8);
+    ctx.fillText(`+${game.cops.length - 4} more units in the search zone`, x + 12, rowsBottom);
   }
+  // Notoriety row: name + progress bar into the next band.
+  const noto = notorietyLevel(wanted);
+  const ny = notoY;
+  ctx.fillStyle = '#b86ad8';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.fillText(`NOTORIETY: ${noto.name.toUpperCase()}`, x + 12, ny);
+  drawBar(ctx, x + 132, ny - 8, w - 144, 8, noto.into, '#b86ad8');
   ctx.restore();
 }
 
@@ -944,6 +961,27 @@ export function drawHUD(ctx, game, view) {
     const hw = ctx.measureText(hint).width + 20;
     roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
     ctx.fillStyle = '#ffd94a';
+    ctx.textAlign = 'center';
+    ctx.fillText(hint, w / 2, h - 121);
+  }
+  // Chop-shop hint when driving a car into the Docklands crusher yard, and
+  // the impound hint when Leo's towed car is waiting in Portside.
+  if (p.inCar && p.car && dist(p.x, p.y, LANDMARKS.chopshop.x, LANDMARKS.chopshop.y) < 140) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const hint = 'Press F — Sell this car to the chop shop';
+    ctx.font = 'bold 13px sans-serif';
+    const hw = ctx.measureText(hint).width + 20;
+    roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
+    ctx.fillStyle = '#b86ad8';
+    ctx.textAlign = 'center';
+    ctx.fillText(hint, w / 2, h - 121);
+  } else if (game.impound && dist(p.x, p.y, LANDMARKS.impound.x, LANDMARKS.impound.y) < 140) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const hint = 'Press F — Reclaim your impounded car ($200)';
+    ctx.font = 'bold 13px sans-serif';
+    const hw = ctx.measureText(hint).width + 20;
+    roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
+    ctx.fillStyle = '#ff9a3c';
     ctx.textAlign = 'center';
     ctx.fillText(hint, w / 2, h - 121);
   }
@@ -1083,8 +1121,10 @@ function drawMinimap(ctx, game, view) {
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(x + wx * scale, y + wy * scale, r, 0, TAU); ctx.fill();
   };
-  // Garage (upgrade shop) marker.
+  // Garage (upgrade shop) marker, chop shop and impound lot.
   dot(LANDMARKS.garage.x, LANDMARKS.garage.y, '#e8c832', 4);
+  dot(LANDMARKS.chopshop.x, LANDMARKS.chopshop.y, '#b86ad8', 4);
+  if (game.impound) dot(LANDMARKS.impound.x, LANDMARKS.impound.y, '#ff9a3c', 4);
   // Mission marker.
   if (game.missions.target && game.missions.stage === 'active') dot(game.missions.target.x, game.missions.target.y, '#ff4ad8', 5);
   // Side-job marker (courier / rampage) when no mission is running.
@@ -1139,7 +1179,7 @@ export function drawTitle(ctx, game, view) {
   const story = [
     'Leo Marín came back to Solmarina with $50 and a borrowed jacket.',
     'Drive fares, steal cars, dodge the PD — and pull the heist of the decade.',
-    'Twelve missions. Eight districts. One city. No rules but yours.',
+    'Twelve missions. Sixteen districts. One city. No rules but yours.',
   ];
   story.forEach((line, i) => ctx.fillText(line, w / 2, h / 2 - 58 + i * 22));
   ctx.fillStyle = '#fff';
@@ -1176,8 +1216,9 @@ export function drawPause(ctx, game, view) {
   ctx.fillText('PAUSED', w / 2, h / 2 - 60);
   ctx.font = '16px sans-serif';
   const p = game.player;
-  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/${MISSION_DEFS.length}  •  Fares ${p.stats.faresDone}  •  Couriers ${p.stats.couriersDone}  •  Rampages ${p.stats.rampagesDone}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
-  ctx.fillText('P resume  •  R restart  •  M mute  •  Click to resume', w / 2, h / 2 + 16);
+  const noto = notorietyLevel(game.wanted || { notoriety: 0 });
+  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/${MISSION_DEFS.length}  •  Fares ${p.stats.faresDone}  •  Couriers ${p.stats.couriersDone}  •  Rampages ${p.stats.rampagesDone}  •  Vigilante ${p.stats.vigilanteDone || 0}  •  Chop sales ${p.stats.chopSales || 0}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
+  ctx.fillText(`Notoriety: ${noto.name} (${Math.round(noto.value)}/100)  •  P resume  •  R restart  •  M mute  •  Click to resume`, w / 2, h / 2 + 16);
   ctx.restore();
 }
 

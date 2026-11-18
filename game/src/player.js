@@ -8,6 +8,7 @@ import { nearestCar, driveCar, carHealth } from './vehicles.js';
 import { fireWeapon, WEAPONS } from './combat.js';
 import { addCrime } from './police.js';
 import { activateNitro, nitroActive, nitroReady, maxHealthOf } from './garage.js';
+import { impoundCar } from './chopshop.js';
 
 export function createPlayer() {
   return {
@@ -28,7 +29,7 @@ export function createPlayer() {
     ammo: { pistol: Infinity, smg: 0, shotgun: 0, rifle: 0 },
     fireTimer: 0,
     hurtTimer: 0,
-    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0, couriersDone: 0, rampagesDone: 0, rep: 0 },
+    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0, couriersDone: 0, rampagesDone: 0, rep: 0, chopSales: 0, chopEarned: 0, vigilanteDone: 0 },
     driftTime: 0, // seconds spent handbrake-drifting in the current chain
     drifting: false,
   };
@@ -232,15 +233,22 @@ export function updatePlayerDriving(game, dt, time) {
 }
 
 // Busted / wasted: lose some cash, respawn at the hospital or safehouse.
+// The car Leo was driving gets towed to the PD impound lot in Portside —
+// buy it back for $200 (chopshop.reclaimImpound) instead of losing it.
 export function respawn(game, kind) {
   const p = game.player;
   const lost = Math.min(p.money, Math.floor(p.money * 0.2) + 20);
   p.money -= lost;
   p.deaths++;
   if (p.inCar && p.car) {
-    p.car.driver = null;
-    p.car.kind = 'parked';
-    p.car.speed = 0;
+    const car = p.car;
+    // A mission car is the crew's, not Leo's — it is not impounded (the
+    // mission retry spawns its own fresh car), but it still leaves the
+    // world with Leo instead of sitting parked where he was busted.
+    if (game.missions && game.missions.targetCar !== car) impoundCar(game, car);
+    game.cars = game.cars.filter((c) => c !== car);
+    car.driver = null;
+    car.speed = 0;
     p.car = null;
     p.inCar = false;
   }

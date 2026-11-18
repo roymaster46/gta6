@@ -1,11 +1,15 @@
-// sidejobs.js — repeatable side work beyond taxi fares: courier runs and
-// Viper rampages. Both are offered only while no story mission is running,
-// pay cash on completion, and feed the same HUD objective / world marker /
-// minimap plumbing as missions (priority: story mission, then side job,
-// then taxi fare). Starting a story mission cancels any open side job, so
-// the two systems never fight over the gang list or the objective banner.
-import { dist, rand, fmtCountdown } from './utils.js';
-import { randomRoadPoint } from './city.js';
+// sidejobs.js — repeatable side work beyond taxi fares: courier runs,
+// Viper rampages and vigilante takedowns. All three are offered only while
+// no story mission is running, pay cash on completion, and feed the same
+// HUD objective / world marker / minimap plumbing as missions (priority:
+// story mission, then side job, then taxi fare). Starting a story mission
+// cancels any open side job, so the systems never fight over the gang list
+// or the objective banner. The vigilante job is the driving one: a Viper
+// getaway car flees across the city and Leo has 90 seconds to wreck it —
+// by ramming it or shooting it — for $400.
+import { dist, rand, fmtCountdown, angleTo, turnToward, clamp } from './utils.js';
+import { randomRoadPoint, collideBuildings } from './city.js';
+import { makeCar, carHealth, CAR_MODELS } from './vehicles.js';
 
 // Courier tiers: same job, different stakes. Fragile pays more for a
 // tighter window; VIP pays most of all and the clock is brutal.
@@ -21,6 +25,8 @@ export function createSideJobState() {
     courierCooldown: 0,
     rampage: null,        // {zone, needed, timeLimit, timer, started}
     rampageCooldown: 0,
+    vigilante: null,      // {car, pay, timeLimit, timer}
+    vigilanteCooldown: 0,
   };
 }
 
@@ -30,10 +36,16 @@ export function cancelSideJobs(game) {
   const sj = game.sideJobs;
   if (!sj) return;
   if (sj.rampage && sj.rampage.started) game.gang.length = 0;
+  if (sj.vigilante && sj.vigilante.car) {
+    // The getaway car leaves town when the job is cancelled.
+    game.cars = game.cars.filter((c) => c !== sj.vigilante.car);
+  }
   sj.courier = null;
   sj.rampage = null;
+  sj.vigilante = null;
   sj.courierCooldown = 10;
   sj.rampageCooldown = 15;
+  sj.vigilanteCooldown = 20;
 }
 
 function pickTier() {
@@ -91,11 +103,63 @@ function startRampage(game) {
   game.events.push({ type: 'siren' });
 }
 
+// A Viper getaway car is running from the PD — the city pays $400 to
+// whoever wrecks it first. The car spawns a few blocks from Leo and flees
+// from him the moment the job is offered, so the chase starts immediately.
+export function offerVigilante(game) {
+  const sj = game.sideJobs;
+  if (!sj || sj.vigilante || sj.vigilanteCooldown > 0) return;
+  const p = game.player;
+  let spot = null;
+  for (let i = 0; i < 12; i++) {
+    const cand = randomRoadPoint(game.city, Math.random);
+    if (dist(cand.x, cand.y, p.x, p.y) > 350) { spot = cand; break; }
+  }
+  if (!spot) spot = randomRoadPoint(game.city, Math.random);
+  const car = makeCar(spot.x, spot.y, angleTo(spot.x, spot.y, p.x, p.y) + Math.PI, {
+    kind: 'viper', driver: 'viper', color: '#c22a2a',
+    model: CAR_MODELS.find((m) => m.name === 'Marina GT'), label: 'VIPER',
+  });
+  car.speed = 60;
+  game.cars.push(car);
+  sj.vigilante = { car, pay: 400, timeLimit: 90, timer: 0 };
+  game.missions.message = 'Vigilante job: a Viper getaway car is running — wreck it in 90s for $400!';
+  game.missions.messageTimer = 5;
+}
+
+// The getaway car flees: it steers away from Leo at up to 150 speed and
+// slides off buildings instead of through them. Returns true while the
+// chase is still on.
+function updateVigilanteCar(game, dt) {
+  const v = game.sideJobs.vigilante;
+  const car = v.car;
+  const p = game.player;
+  const px = p.inCar && p.car ? p.car.x : p.x;
+  const py = p.inCar && p.car ? p.car.y : p.y;
+  const away = angleTo(px, py, car.x, car.y);
+  car.angle = turnToward(car.angle, away, dt * 2.2);
+  car.speed = clamp(car.speed + 120 * dt, 0, 150);
+  car.x += Math.cos(car.angle) * car.speed * dt;
+  car.y += Math.sin(car.angle) * car.speed * dt;
+  car.x = clamp(car.x, 30, 2370);
+  car.y = clamp(car.y, 30, 2370);
+  const pos = { x: car.x, y: car.y };
+  if (collideBuildings(game.city, pos, 20)) {
+    car.x = pos.x; car.y = pos.y;
+    car.speed *= 0.5;
+    // A hard shunt into a wall spins the getaway driver: he turns away
+    // from the wall instead of grinding along it forever.
+    car.angle += Math.PI / 2;
+  }
+  return true;
+}
+
 export function updateSideJobs(game, dt) {
   const sj = game.sideJobs;
   if (!sj) return;
   sj.courierCooldown = Math.max(0, sj.courierCooldown - dt);
   sj.rampageCooldown = Math.max(0, sj.rampageCooldown - dt);
+  sj.vigilanteCooldown = Math.max(0, sj.vigilanteCooldown - dt);
   const ms = game.missions;
   const p = game.player;
   const px = p.inCar && p.car ? p.car.x : p.x;
@@ -105,6 +169,7 @@ export function updateSideJobs(game, dt) {
   if (ms.stage !== 'active') {
     if (!sj.courier && sj.courierCooldown <= 0 && Math.random() < dt * 0.05) offerCourier(game);
     if (!sj.rampage && sj.rampageCooldown <= 0 && Math.random() < dt * 0.03) offerRampage(game);
+    if (!sj.vigilante && sj.vigilanteCooldown <= 0 && Math.random() < dt * 0.03) offerVigilante(game);
   }
 
   const c = sj.courier;
@@ -172,6 +237,41 @@ export function updateSideJobs(game, dt) {
       }
     }
   }
+
+  // Vigilante: the getaway car flees while the clock runs. Wreck it — by
+  // ramming or shooting — and the city pays $400 plus REP.
+  const v = sj.vigilante;
+  if (v) {
+    v.timer += dt;
+    if (!game.cars.includes(v.car)) {
+      // The car is gone without being wrecked (despawned or sold): the job
+      // ends quietly instead of hanging on the HUD forever.
+      sj.vigilante = null;
+      sj.vigilanteCooldown = 20;
+    } else if (carHealth(v.car) <= 0) {
+      p.money += v.pay;
+      p.stats.vigilanteDone = (p.stats.vigilanteDone || 0) + 1;
+      p.stats.rep = (p.stats.rep || 0) + 30;
+      game.events.push({ type: 'cash' });
+      game.events.push({ type: 'explosion', x: v.car.x, y: v.car.y });
+      game.missions.message = `Vigilante: Viper getaway wrecked — +$${v.pay}! The PD sends its thanks.`;
+      game.missions.messageTimer = 4;
+      game.cars = game.cars.filter((c) => c !== v.car);
+      sj.vigilante = null;
+      sj.vigilanteCooldown = 45;
+      game.save();
+    } else if (v.timer > v.timeLimit) {
+      game.missions.message = 'Vigilante failed — the Viper getaway car got away';
+      game.missions.messageTimer = 4;
+      game.events.push({ type: 'missionFail' });
+      game.cars = game.cars.filter((c) => c !== v.car);
+      sj.vigilante = null;
+      sj.vigilanteCooldown = 45;
+      game.save();
+    } else {
+      updateVigilanteCar(game, dt);
+    }
+  }
 }
 
 // Objective banner line for the active side job (null when there is none).
@@ -183,6 +283,11 @@ export function sideJobObjectiveText(game) {
     if (!rj.started) return 'Side job: Viper crew at the marker — drive there to start';
     const dead = game.gang.filter((g) => g.dead).length;
     return `Rampage: take down the Vipers (${dead}/${rj.needed}) — ${fmtCountdown(rj.timeLimit - rj.timer)} left`;
+  }
+  const v = sj.vigilante;
+  if (v) {
+    const hp = Math.max(0, Math.round(carHealth(v.car)));
+    return `Vigilante: wreck the Viper getaway car (${hp}% left) — ${fmtCountdown(v.timeLimit - v.timer)} left ($${v.pay})`;
   }
   const c = sj.courier;
   if (c) {
@@ -198,6 +303,7 @@ export function sideJobTarget(game) {
   const sj = game.sideJobs;
   if (!sj) return null;
   if (sj.rampage) return { x: sj.rampage.zone.x, y: sj.rampage.zone.y, label: 'RAMPAGE', color: '#ff4a4a' };
+  if (sj.vigilante) return { x: sj.vigilante.car.x, y: sj.vigilante.car.y, label: 'VIPER', color: '#ff4a4a' };
   const c = sj.courier;
   if (c) {
     const dest = c.hasParcel ? c.dropoff : c.pickup;

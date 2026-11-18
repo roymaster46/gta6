@@ -24,11 +24,30 @@ if (!existsSync(gameDir)) {
 if (!existsSync(shotsDir)) {
   throw new Error('main.ts: screenshots/ is missing from the repository');
 }
-for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js']) {
+for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js', 'chopshop.js']) {
   if (!existsSync(join(gameDir, 'src', mod))) {
-    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job and radio modules are required`);
+    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job, radio and chop-shop modules are required`);
   }
 }
+// The city must tile into exactly sixteen districts: the dossier's text
+// budget covers the map description, and a half-split map would ship a HUD
+// pill naming districts the minimap cannot show.
+const citySrc = readFileSync(join(gameDir, 'src', 'city.js'), 'utf8');
+// District entries are the `{ name: ..., x: ..., y: ..., w: ..., h: ..., blurb: ... }`
+// lines (the districtInfo fallback also carries a blurb and must not count).
+const districtCount = (citySrc.match(/\{ name: '[^']+', x: \d+, y: \d+, w: \d+, h: \d+, blurb: '/g) || []).length;
+if (districtCount !== 16) {
+  throw new Error(`main.ts: expected 16 districts in game/src/city.js, found ${districtCount}`);
+}
+console.log(`districts: ${districtCount} (Marina to Coral Beach)`);
+// The Last Sunset tour must visit eight districts: a shorter tour would
+// ship a finale that ends before the city is shown off.
+const missionsSrc = readFileSync(join(gameDir, 'src', 'missions.js'), 'utf8');
+const tourStops = (missionsSrc.match(/Stop \d+ — /g) || []).length;
+if (tourStops !== 8) {
+  throw new Error(`main.ts: expected 8 grand-tour stops in game/src/missions.js, found ${tourStops}`);
+}
+console.log(`grand tour: ${tourStops} district stops`);
 // Every screenshot named in shots.json must exist on disk: a stale entry
 // would otherwise ship a dossier pointing at a file that is not there.
 const shotList = JSON.parse(readFileSync(join(repoRoot, 'shots.json'), 'utf8'));

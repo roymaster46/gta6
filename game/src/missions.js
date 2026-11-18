@@ -84,10 +84,10 @@ export const MISSION_DEFS = [
     sayer: 'Rico', role: 'Fixer', say: 'Something’s off about this pickup. Keep your eyes open.',
   },
   {
-    id: 12, title: 'The Last Sunset', pay: 7000,
-    brief: 'The grand tour. Five stops, one in every district — Marina, Downtown, Palm Park, Portside, Playa Sol — and the whole city watching. 200 seconds, 3-star heat, one last sunset.',
-    objective: 'Hit all 5 district checkpoints',
-    sayer: 'Maya', role: 'Getaway Driver', say: 'One last sunset tour, Leo. Five stops, then the city is ours.',
+    id: 12, title: 'The Last Sunset', pay: 8000,
+    brief: 'The grand tour. Eight stops, one in each of eight districts — Marina, Yacht Basin, Market Square, Civic Center, University Quarter, Rose Gardens, Docklands, Coral Beach — and the whole city watching. 260 seconds, 3-star heat, one last sunset.',
+    objective: 'Hit all 8 district checkpoints',
+    sayer: 'Maya', role: 'Getaway Driver', say: 'One last sunset tour, Leo. Eight stops, then the city is ours.',
   },
 ];
 
@@ -105,14 +105,19 @@ export const HARBOR_DOCKS = [
   { x: 2280, y: 2000, label: 'Pier 3 — South Dock' },
 ];
 
-// The five Last Sunset tour stops, one per district: Marina, Downtown,
-// Palm Park, Portside, Playa Sol.
+// The eight Last Sunset tour stops, one per district across the new
+// sixteen-district map: Marina, Yacht Basin, Market Square, Civic Center,
+// University Quarter, Rose Gardens, Docklands, Coral Beach — a lap of the
+// whole city, north edge to south beach, in one sunset.
 export const GRAND_TOUR = [
-  { x: 1200, y: 150, label: 'Stop 1 — Marina Bridge' },
-  { x: 1200, y: 750, label: 'Stop 2 — Downtown' },
-  { x: 1100, y: 1470, label: 'Stop 3 — Palm Park' },
-  { x: 1800, y: 1650, label: 'Stop 4 — Portside' },
-  { x: 1200, y: 2250, label: 'Stop 5 — Playa Sol' },
+  { x: 900, y: 150, label: 'Stop 1 — Marina Bridge' },
+  { x: 1800, y: 150, label: 'Stop 2 — Yacht Basin' },
+  { x: 375, y: 975, label: 'Stop 3 — Market Square' },
+  { x: 1200, y: 975, label: 'Stop 4 — Civic Center' },
+  { x: 2025, y: 975, label: 'Stop 5 — University Quarter' },
+  { x: 900, y: 1500, label: 'Stop 6 — Rose Gardens' },
+  { x: 1800, y: 1920, label: 'Stop 7 — Docklands' },
+  { x: 1800, y: 2280, label: 'Stop 8 — Coral Beach' },
 ];
 
 export function createMissionState() {
@@ -192,7 +197,7 @@ export function missionObjectiveText(game) {
     if (def.id === 12) {
       const done = ms.checkpointIndex;
       if (done < GRAND_TOUR.length) {
-        return `Stop ${done + 1}/5 — ${GRAND_TOUR[done].label} — ${fmtCountdown(missionTimeLeft(ms))} left`;
+        return `Stop ${done + 1}/${GRAND_TOUR.length} — ${GRAND_TOUR[done].label} — ${fmtCountdown(missionTimeLeft(ms))} left`;
       }
       return `Grand tour complete — ${fmtCountdown(missionTimeLeft(ms))} left`;
     }
@@ -302,8 +307,8 @@ export function startMission(game) {
     ms.timeLimit = 150;
     ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the package' };
   } else if (def.id === 12) {
-    // The Last Sunset: five stops, one per district, under 3-star heat.
-    ms.timeLimit = 200;
+    // The Last Sunset: eight stops, one per district, under 3-star heat.
+    ms.timeLimit = 260;
     addCrime(game.wanted, 65, game.time);
     game.events.push({ type: 'siren' });
     ms.checkpoints = GRAND_TOUR.map((c) => ({ ...c, done: false }));
@@ -589,7 +594,7 @@ export function updateMissions(game, dt, time) {
         if (ms.checkpointIndex < GRAND_TOUR.length) {
           const next = GRAND_TOUR[ms.checkpointIndex];
           ms.target = { x: next.x, y: next.y, label: next.label };
-          setMessage(game, `Stop ${ms.checkpointIndex}/5 hit — next: ${next.label}`, 4);
+          setMessage(game, `Stop ${ms.checkpointIndex}/${GRAND_TOUR.length} hit — next: ${next.label}`, 4);
         } else {
           setMessage(game, 'Grand tour complete — Solmarina is yours!', 5);
           completeMission(game);

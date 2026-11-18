@@ -5,6 +5,9 @@
 // game.light follows it; dusk flips the music into its night groove and the
 // helicopter rotor sound ticks while the PD heli is overhead. At 3+ stars
 // the radio is forced onto the Fuga FM chase groove until the heat drops.
+// F is the multi-use key: Pay-n-Spray at the garage, sell the car at the
+// chop shop, reclaim a towed car at the impound lot, otherwise start the
+// next mission. District discovery pays $25 per district (sixteen now).
 // URL query ?shot=<name>&seed=1 stages a deterministic scene for screenshots:
 //   shot=chase   — Leo in a car, 3-star police chase, HUD + minimap + objective
 //   shot=mission — beach shootout (mission 3) with gang members and HUD
@@ -15,7 +18,7 @@
 //   shot=finale  — Mission 9 finale: armored van, 5 stars, PD heli overhead
 //   shot=start   — title screen over the city
 import { clamp, dist, mulberry32, hashSeed, rand } from './utils.js';
-import { buildCity, WORLD, LANDMARKS, districtAt, randomRoadPoint, randomFreePoint } from './city.js';
+import { buildCity, WORLD, LANDMARKS, districtAt, districtInfo, randomRoadPoint, randomFreePoint } from './city.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createPlayer, updatePlayerOnFoot, updatePlayerDriving, tryEnterCar, damagePlayer, respawn } from './player.js';
@@ -25,6 +28,7 @@ import { createWanted, addCrime, updateWanted, spawnPolice, updatePolice, update
 import { updateBullets, updatePickups, spawnPickups, WEAPONS } from './combat.js';
 import { createMissionState, startMission, updateMissions, updateGang, missionObjectiveText, currentMissionDef, MIDNIGHT_CHECKPOINTS } from './missions.js';
 import { createSideJobState, updateSideJobs } from './sidejobs.js';
+import { createChopState, updateChopShop, sellCarToChop, reclaimImpound } from './chopshop.js';
 import { drawWorld, drawHUD, drawTitle, drawPause, drawEndScreen, drawShop } from './render.js';
 import { lightAt, isNight, pedTarget, CYCLE } from './daynight.js';
 import { createShop, buyUpgrade, UPGRADES } from './garage.js';
@@ -71,6 +75,8 @@ function buildGame() {
     wanted: createWanted(),
     missions: createMissionState(),
     sideJobs: createSideJobState(),
+    chopshop: createChopState(), // chop-shop cooldown / sales ledger
+    impound: null,               // {model, color, upgrades, damage} or null
     cars: [],
     peds: [],
     cops: [],
@@ -224,13 +230,14 @@ function update(dt) {
   updateCamera(dt);
   const p = game.player;
 
-  // District discovery: the first visit to each of the eight districts
-  // pays $25 and toasts its name (city.js DISTRICTS).
+  // District discovery: the first visit to each of the sixteen districts
+  // pays $25 and toasts its name and flavour line (city.js DISTRICTS).
   const here = districtAt(p.x, p.y);
   if (!game.discovered.has(here)) {
     game.discovered.add(here);
     p.money += 25;
-    game.events.push({ type: 'toast', text: `Discovered: ${here} — +$25` });
+    const info = districtInfo(p.x, p.y);
+    game.events.push({ type: 'toast', text: `Discovered: ${here} — ${info.blurb} +$25` });
   }
   // Chase music: at 3+ stars the radio is forced onto the Fuga FM chase
   // groove; when the heat drops the driver's station comes back.
@@ -287,16 +294,24 @@ function update(dt) {
         game.events.push({ type: 'toast', text: 'Get in a car to fit upgrades' });
       }
     }
-    // F does ONE thing per press: near the garage while wanted it pays for
-    // Pay-n-Spray; otherwise it starts the next mission. Before this fix a
-    // single F press near the garage did both at once — starting a mission
-    // and charging the spray fee in the same frame.
+    // F does ONE thing per press, in priority order: near the garage while
+    // wanted it pays for Pay-n-Spray; in a car at the chop shop it sells
+    // the car to the crusher; at the impound lot it buys Leo's towed car
+    // back; otherwise it starts the next mission. Before this fix a single
+    // F press near the garage did both at once — starting a mission and
+    // charging the spray fee in the same frame.
     if (input.wasPressed('interact')) {
       const nearGarage = dist(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y) < 110;
+      const nearChop = dist(p.x, p.y, LANDMARKS.chopshop.x, LANDMARKS.chopshop.y) < 110;
+      const nearImpound = dist(p.x, p.y, LANDMARKS.impound.x, LANDMARKS.impound.y) < 110;
       if (nearGarage && game.wanted.stars > 0) {
         const fee = payNSpray(game);
         if (fee > 0) game.events.push({ type: 'toast', text: `Pay-n-Spray: wanted cleared for $${fee}` });
         else game.events.push({ type: 'toast', text: 'Pay-n-Spray: not enough cash!' });
+      } else if (nearChop && p.inCar) {
+        game.events.push({ type: 'toast', text: sellCarToChop(game) });
+      } else if (nearImpound && game.impound) {
+        game.events.push({ type: 'toast', text: reclaimImpound(game) });
       } else if (game.missions.stage === 'idle') {
         startMission(game);
       }
@@ -364,6 +379,7 @@ function update(dt) {
     updateGang(game, dt, game.time);
     updateMissions(game, dt, game.time);
     updateSideJobs(game, dt);
+    updateChopShop(game, dt); // chop-shop sale cooldown ticks down
     // The streets thin out after dark: top the peds back up toward the
     // target for this hour (daynight.pedTarget), a few at a time.
     const alive = game.peds.filter((pd) => !pd.dead).length;

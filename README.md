@@ -20,7 +20,9 @@ A 2400×2400 open world: a road grid with traffic and sidewalks, a beach and oce
 edge, Palm Park with a plaza and benches, the port with docks and a getaway boat,
 the Marina Bridge, the Solmarina Bank, a Pay-n-Spray garage, a hospital and Leo's
 safehouse. Roadside billboards, beach kiosks and street lamps fill out the streets.
-Camera follows you on foot and in a car.
+The Docklands hide a chop shop that buys stolen cars, and the Portside holds the
+PD impound lot where towed cars wait to be bought back. Camera follows you on
+foot and in a car.
 
 ## Systems
 
@@ -38,8 +40,11 @@ Camera follows you on foot and in a car.
   dark, traffic cruises slower, and the soundtrack swaps to a moodier minor
   groove. At dusk and dawn the golden hour stretches the shadows long and the sky
   turns orange-pink. The clock (sun/moon, phase, time) sits at the top of the HUD
-  with a district pill naming where Leo is standing — Marina, Old Town, Downtown,
-  Hospital Row, Palm Park, Portside, Safehouse Hills or Playa Sol. Mission 7 only
+  with a district pill naming where Leo is standing — one of sixteen districts:
+  Marina, Yacht Basin, Old Town, Market Square, Downtown, Civic Center, Hospital
+  Row, University Quarter, Palm Park, Rose Gardens, Portside, Docklands, Safehouse
+  Hills, Sunset Ridge, Playa Sol and Coral Beach, each with its own flavour line
+  and a $25 discovery bonus on first visit. Mission 7 only
   runs after dark — start it in the daytime and Leo waits for nightfall.
 - **Garage upgrade shop** — park in a car near the Pay-n-Spray and press G. Spend
   mission and fare money on Engine Tune (+15% top speed per level, 3 levels),
@@ -61,6 +66,20 @@ Camera follows you on foot and in a car.
   clean; Pay-n-Spray clears your wanted level for cash. The HUD's PD RESPONSE
   panel lists the units on you — distance and CHASE / SEARCH / ROADBLOCK — and
   the minimap shows the pulsing red search zone around you.
+- **Notoriety** — heat is the chase you are in now; notoriety (0–100) is the name
+  you carry between chases. Every crime adds a slice of it, and it only fades
+  after a long clean stretch. At 60+ the PD answers faster, the helicopter flies
+  at 3 stars instead of 4, and Pay-n-Spray charges a $50 surcharge for a face the
+  whole precinct recognises. Clearing your stars never clears your name — only
+  staying clean does. The PD RESPONSE panel shows your notoriety band, from
+  Unknown to Most Wanted.
+- **Chop shop & impound** — drive a stolen car to the Chop Shop in the Docklands
+  and press F to sell it to the crusher: payout follows the model and the
+  condition (a clean Marina GT pays $420, a wreck pays a quarter), one sale
+  every 45 seconds, and every sale adds heat and notoriety. The shop will not
+  touch a police car or a car a mission still needs. Get busted or wasted while
+  driving and the PD tows your car to the Impound Lot in Portside — press F
+  there to buy it back for $200, upgrades included. The lot holds one car.
 - **Busted / Wasted** — arrested or killed, you lose some money and wake up at
   the hospital / safehouse.
 - **Missions (12-story chain)** — 1) First Fare, 2) Hot Wheels, 3) Beach Shootout,
@@ -75,17 +94,19 @@ Camera follows you on foot and in a car.
   getaway boat, 180 seconds, $5,000), 10) King of Solmarina (survive 90 seconds
   of 5-star heat, $6,000), 11) Double Cross (the package at the port is a setup —
   four Viper hunters chase you to the safehouse, 150 seconds, $4,500), 12) The
-  Last Sunset (five stops, one in every district, 200 seconds, $7,000) — each
-  with a mission card (number, objective, stage progress, timer), a dialogue
+  Last Sunset (eight stops, one in each of eight districts, 260 seconds, $8,000)
+  — each with a mission card (number, objective, stage progress, timer), a dialogue
   card where Rico or Maya talks to Leo, and a pulsing minimap marker. While a
   mission is active it outranks taxi fares everywhere (banner, world marker,
   off-screen arrow). Plus repeatable taxi fares for cash.
 - **Side jobs** — between story jobs the city offers work: **courier runs**
-  (parcel / fragile / VIP, faster pay for tighter windows, time bonus) and
-  **Viper rampages** (clear a gang zone in 75 seconds for $350). Side jobs pay
+  (parcel / fragile / VIP, faster pay for tighter windows, time bonus),
+  **Viper rampages** (clear a gang zone in 75 seconds for $350) and **vigilante
+  takedowns** (a Viper getaway car flees across the city — wreck it by ramming
+  or shooting within 90 seconds for $400). Side jobs pay
   cash and REP; they never interrupt a story mission.
 - **REP** — reputation earned from missions (+100), fares (+10), couriers (+15),
-  rampages (+25), gang kills (+5), drifts (+5), near misses (+2) and shooting
+  rampages (+25), vigilante takedowns (+30), chop-shop sales (+10), gang kills (+5), drifts (+5), near misses (+2) and shooting
   down the helicopter (+50). 500 REP per level; the HUD shows your REP level
   and progress.
 - **Drift & near misses** — hold the handbrake and steer at speed to build a
@@ -115,7 +136,7 @@ Camera follows you on foot and in a car.
 | Shift | Sprint |
 | Mouse + Click | Aim / shoot |
 | E | Enter / exit nearest car |
-| F | Start next mission (near the garage while wanted: Pay-n-Spray instead) |
+| F | Start next mission (near the garage while wanted: Pay-n-Spray; in a car at the chop shop: sell the car; at the impound lot: reclaim your car) |
 | G | Upgrade shop (in a car, near the garage) |
 | N | Nitro boost (car with the kit fitted) |
 | H | Horn (while driving) |
@@ -153,15 +174,16 @@ mission, 3-night = night, 4-police = police.
 
 - `game/index.html`, `game/style.css` — page shell
 - `game/src/main.js` — boot, loop, state machine, save, shot staging
-- `game/src/city.js` — map, roads, buildings, collision, billboards, plaza, kiosks, 8 districts
+- `game/src/city.js` — map, roads, buildings, collision, billboards, plaza, kiosks, 16 districts, chop shop + impound lot
+- `game/src/chopshop.js` — chop-shop sales (model + condition pricing, cooldown) and the impound-lot reclaim
 - `game/src/daynight.js` — day/night cycle: phases, light level, clock label, golden hour
 - `game/src/garage.js` — upgrade shop: engine / armour / nitro / grip tires, pricing
 - `game/src/player.js` — on-foot + driving control, nitro, stamina, drift chains, damage, respawn
 - `game/src/vehicles.js` — car physics, traffic AI, upgrades in the drive model, Moto Sol
 - `game/src/peds.js` — pedestrian AI, day/night behaviour, night owls, chatting pairs
-- `game/src/police.js` — wanted level, cop state machine, helicopter, roadblocks
-- `game/src/missions.js` — story chain (12 missions, dialogue, fail reasons) + taxi fares
-- `game/src/sidejobs.js` — courier runs + Viper rampages
+- `game/src/police.js` — wanted level, notoriety, cop state machine, helicopter, roadblocks
+- `game/src/missions.js` — story chain (12 missions, dialogue, fail reasons) + taxi fares; M12 grand tour visits 8 districts
+- `game/src/sidejobs.js` — courier runs + Viper rampages + vigilante takedowns
 - `game/src/radio.js` — 4 radio stations, tracks, chase music
 - `game/src/combat.js` — weapons (incl. rifle), bullets (incl. helicopter hits), pickups
 - `game/src/render.js` — world, night lighting, golden-hour shadows, HUD, shop, circular minimap, menus

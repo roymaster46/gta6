@@ -1,11 +1,13 @@
 // city.js — Solmarina map: roads, buildings, beach, park, port, bridge.
 // World is 2400x2400. Roads form a grid; blocks hold buildings, parks and
 // landmarks. All placement is deterministic from a seed so ?shot= scenes match.
-// New in this revision: eight named districts (districtAt) covering the
+// New in this revision: sixteen named districts (districtAt) covering the
 // whole map for the HUD, the minimap and the discovery bonus, plus
 // billboards along the main roads, a plaza with benches next to Palm Park,
 // beach kiosks on Playa Sol, and a glow radius on every street lamp so the
-// renderer can light them up after dark.
+// renderer can light them up after dark. Each district also carries a
+// one-line blurb (districtInfo) that the HUD pill and the minimap can show,
+// and the east edge holds the chop shop and the PD impound lot.
 import { mulberry32, pick, resolveCircleRect } from './utils.js';
 
 export const WORLD = 2400;
@@ -27,6 +29,11 @@ export const LANDMARKS = {
   // The buyer's yacht, moored just north of the marina — the drop point for
   // the final mission. Reachable on foot and by car along the north edge.
   yacht: { x: 1200, y: 60, label: 'Yacht' },
+  // The chop shop in the Docklands buys stolen cars, no questions asked —
+  // drive a hot car in and press F. The PD impound lot in Portside holds
+  // whatever the cops towed after a bust; $200 buys your car back.
+  chopshop: { x: 2080, y: 1800, label: 'Chop Shop' },
+  impound: { x: 2080, y: 1420, label: 'Impound Lot' },
 };
 
 const BUILDING_COLORS = [
@@ -35,20 +42,30 @@ const BUILDING_COLORS = [
 ];
 const ROOF_COLORS = ['#8a5a3b', '#6b4a3a', '#7a6a5a', '#5a6a7a', '#9a7a5a'];
 
-// Eight named districts cover the map: the HUD and the minimap show the
+// Sixteen named districts cover the map: the HUD and the minimap show the
 // one Leo is standing in, and entering a new one for the first time pays a
 // small discovery bonus (see main.js). The rects tile the city with no
-// gaps: the north strip is the Marina, the south strip is Playa Sol, and
-// the port owns the whole east edge.
+// gaps: every old district split in two along its natural seam — the north
+// strip is the Marina and the Yacht Basin, the south strip is Playa Sol and
+// Coral Beach, and the port owns the whole east edge as Portside above the
+// Docklands. The blurbs give each district a flavour line for the HUD.
 export const DISTRICTS = [
-  { name: 'Marina', x: 0, y: 0, w: WORLD, h: 300 },
-  { name: 'Old Town', x: 0, y: 300, w: 750, h: 900 },
-  { name: 'Downtown', x: 750, y: 300, w: 900, h: 900 },
-  { name: 'Hospital Row', x: 1650, y: 300, w: 750, h: 900 },
-  { name: 'Palm Park', x: 0, y: 1200, w: 1200, h: 600 },
-  { name: 'Portside', x: 1200, y: 1200, w: 1200, h: 960 },
-  { name: 'Safehouse Hills', x: 0, y: 1800, w: 1200, h: 360 },
-  { name: 'Playa Sol', x: 0, y: 2160, w: WORLD, h: 240 },
+  { name: 'Marina', x: 0, y: 0, w: 1200, h: 300, blurb: 'Yachts, gulls and the smell of salt.' },
+  { name: 'Yacht Basin', x: 1200, y: 0, w: 1200, h: 300, blurb: 'Money sleeps here, moored and polished.' },
+  { name: 'Old Town', x: 0, y: 300, w: 750, h: 450, blurb: 'Cobbles, cafés and old family feuds.' },
+  { name: 'Market Square', x: 0, y: 750, w: 750, h: 450, blurb: 'Stalls by day, deals by night.' },
+  { name: 'Downtown', x: 750, y: 300, w: 900, h: 450, blurb: 'Glass towers and getaway routes.' },
+  { name: 'Civic Center', x: 750, y: 750, w: 900, h: 450, blurb: 'City hall, courts — and the PD next door.' },
+  { name: 'Hospital Row', x: 1650, y: 300, w: 750, h: 450, blurb: 'Sirens at all hours, coffee at 3am.' },
+  { name: 'University Quarter', x: 1650, y: 750, w: 750, h: 450, blurb: 'Students, cheap eats, borrowed cars.' },
+  { name: 'Palm Park', x: 0, y: 1200, w: 600, h: 600, blurb: 'Lawns, ponds and pigeons with opinions.' },
+  { name: 'Rose Gardens', x: 600, y: 1200, w: 600, h: 600, blurb: 'Quiet hedges, loud secrets.' },
+  { name: 'Portside', x: 1200, y: 1200, w: 1200, h: 480, blurb: 'Cranes, containers and the impound lot.' },
+  { name: 'Docklands', x: 1200, y: 1680, w: 1200, h: 480, blurb: 'The chop shop does its business here.' },
+  { name: 'Safehouse Hills', x: 0, y: 1800, w: 600, h: 360, blurb: 'Leo’s street — home, for now.' },
+  { name: 'Sunset Ridge', x: 600, y: 1800, w: 600, h: 360, blurb: 'The best sunset in Solmarina.' },
+  { name: 'Playa Sol', x: 0, y: 2160, w: 1200, h: 240, blurb: 'Sand, surf and the Viper beach.' },
+  { name: 'Coral Beach', x: 1200, y: 2160, w: 1200, h: 240, blurb: 'Quieter sand, same ocean.' },
 ];
 
 // The district a point is standing in ('Solmarina' when outside them all,
@@ -58,6 +75,38 @@ export function districtAt(x, y) {
     if (x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h) return d.name;
   }
   return 'Solmarina';
+}
+
+// Full district info for a point: name plus its flavour blurb. The HUD
+// district pill shows the name; the minimap label and the discovery toast
+// can show the blurb too.
+export function districtInfo(x, y) {
+  for (const d of DISTRICTS) {
+    if (x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h) {
+      return { name: d.name, blurb: d.blurb };
+    }
+  }
+  return { name: 'Solmarina', blurb: 'The whole city, waiting.' };
+}
+
+// True when every district rect is inside the world and the sixteen rects
+// tile it with no gaps and no overlaps — used by the logic tests and as a
+// build-time sanity check for the map.
+export function districtsTileWorld() {
+  let covered = 0;
+  for (const d of DISTRICTS) {
+    if (d.x < 0 || d.y < 0 || d.x + d.w > WORLD || d.y + d.h > WORLD) return false;
+    covered += d.w * d.h;
+  }
+  if (covered !== WORLD * WORLD) return false;
+  for (let i = 0; i < DISTRICTS.length; i++) {
+    for (let j = i + 1; j < DISTRICTS.length; j++) {
+      const a = DISTRICTS[i], b = DISTRICTS[j];
+      const overlap = a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      if (overlap) return false;
+    }
+  }
+  return true;
 }
 
 // Roadside billboards: fixed spots, fixed copy — part of the city's look.
@@ -118,6 +167,11 @@ export function buildCity(seed = 1) {
     { x: 800, y: 1700, w: 130, h: 90, color: '#b8c8d8', roof: '#5a6a7a', hgt: 40, label: 'GARAGE' },
     { x: 2000, y: 260, w: 140, h: 100, color: '#f0f0e8', roof: '#8a5a3b', hgt: 60, label: 'HOSPITAL' },
     { x: 260, y: 260, w: 120, h: 90, color: '#e8b48a', roof: '#6b4a3a', hgt: 50, label: 'HOME' },
+    // The chop shop (Docklands) and the PD impound lot (Portside) — fixed
+    // spots so the F-key prompts and the minimap dots always point at a
+    // real building, not an empty patch of dock.
+    { x: 1900, y: 1700, w: 110, h: 70, color: '#5a5a66', roof: '#2a2a2e', hgt: 30, label: 'CHOP' },
+    { x: 1900, y: 1340, w: 110, h: 70, color: '#6a7a8a', roof: '#3a4a5a', hgt: 30, label: 'LOT' },
   ];
   for (const lb of landmarkBuildings) buildings.push(lb);
 
