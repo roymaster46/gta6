@@ -7,7 +7,7 @@
 // whole flow slows a touch (see daynight.trafficFactor).
 import { clamp, lerp, angleTo, turnToward, dist, rand, pick, mulberry32 } from './utils.js';
 import { WORLD, nearestRoadPoint, nextWaypoint, randomRoadPoint, randomParkedSpot, collideBuildings } from './city.js';
-import { topSpeedOf, maxHealthOf, nitroActive } from './garage.js';
+import { topSpeedOf, maxHealthOf, nitroActive, gripOf } from './garage.js';
 import { trafficFactor } from './daynight.js';
 
 export const CAR_COLORS = ['#d84a4a', '#3a6fd8', '#e8c832', '#3ab86a', '#e8e8e8', '#2a2a2e', '#d86a2a', '#8a4ad8', '#4ad8d0', '#c0c8d0'];
@@ -18,6 +18,7 @@ export const CAR_MODELS = [
   { name: 'Taxi Sol', len: 46, wid: 22, top: 160, accel: 230 },  // taxi
   { name: 'Patrulla', len: 48, wid: 23, top: 200, accel: 300 },  // police interceptor
   { name: 'Camioneta', len: 52, wid: 24, top: 135, accel: 200 }, // pickup
+  { name: 'Moto Sol', len: 34, wid: 14, top: 170, accel: 320 },  // scooter — narrow, quick off the line, sketchy at speed
 ];
 let nextCarId = 1;
 
@@ -44,7 +45,7 @@ export function makeCar(x, y, angle, opts = {}) {
     wanted: false,
     label: opts.label || null,
     // Garage upgrades, fitted at the Pay-n-Spray shop (garage.js).
-    upgrades: { engine: 0, armor: 0, nitro: false },
+    upgrades: { engine: 0, armor: 0, nitro: false, tires: 0 },
     boostUntil: 0,          // game-time when the current nitro boost ends
     boostCooldownUntil: 0,  // game-time when the next boost is allowed
   };
@@ -84,7 +85,9 @@ export function driveCar(car, input, dt, time = 0) {
     car.speed = lerp(car.speed, 0, Math.min(1, dt * 4));
     car.angle += steer * dt * 2.2 * Math.sign(car.speed || 1);
   } else if (Math.abs(car.speed) > 2) {
-    const grip = clamp(Math.abs(car.speed) / 60, 0.25, 1);
+    // Steering scales with speed and with grip: a car on grip tires turns
+    // noticeably sharper at speed than a stock one (garage.gripOf).
+    const grip = clamp(Math.abs(car.speed) / 60, 0.25, 1) * gripOf(car);
     car.angle += steer * dt * 1.9 * grip * Math.sign(car.speed);
   }
   car.speed = clamp(car.speed, -top * 0.45, top);

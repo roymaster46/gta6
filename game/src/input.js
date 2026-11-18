@@ -1,7 +1,8 @@
 // input.js — keyboard + mouse state for Solmarina.
 // The game reads keys by logical name; this module owns the listeners.
 // New bindings in this revision: G opens the garage upgrade shop near the
-// Pay-n-Spray, N fires the nitro boost in a car that has the kit fitted.
+// Pay-n-Spray, N fires the nitro boost in a car that has the kit fitted,
+// and C cycles the car radio through its four stations.
 export function createInput(canvas) {
   const keys = new Set();
   const pressed = new Set(); // keys pressed since last poll (edge-triggered)
@@ -17,7 +18,7 @@ export function createInput(canvas) {
     Space: 'handbrake',
     KeyE: 'enter', KeyP: 'pause', KeyM: 'mute', KeyR: 'restart',
     KeyF: 'interact', Escape: 'escape', Enter: 'confirm', KeyH: 'horn',
-    KeyG: 'garage', KeyN: 'nitro',
+    KeyG: 'garage', KeyN: 'nitro', KeyC: 'station',
   };
 
   function onKeyDown(e) {

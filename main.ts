@@ -4,8 +4,9 @@
 // vendor/makefun-game.ts. Standard library only; runs on Node 22.
 // The build is checked before it is written: the game folder must exist,
 // every screenshot named in shots.json must exist (at most 4, per the
-// dossier config), and the two modules added in this revision — the
-// day/night cycle and the garage shop — must be present.
+// dossier config), and the modules added in this revision — the day/night
+// cycle, the garage shop, the side jobs and the radio stations — must be
+// present. A missing module would ship a game whose import graph breaks.
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,9 +24,9 @@ if (!existsSync(gameDir)) {
 if (!existsSync(shotsDir)) {
   throw new Error('main.ts: screenshots/ is missing from the repository');
 }
-for (const mod of ['daynight.js', 'garage.js']) {
+for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js']) {
   if (!existsSync(join(gameDir, 'src', mod))) {
-    throw new Error(`main.ts: game/src/${mod} is missing — the day/night and garage modules are required`);
+    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job and radio modules are required`);
   }
 }
 // Every screenshot named in shots.json must exist on disk: a stale entry
@@ -38,6 +39,13 @@ for (const s of shotList) {
   if (!existsSync(join(shotsDir, s.name))) {
     throw new Error(`main.ts: screenshot ${s.name} listed in shots.json is missing from screenshots/`);
   }
+  // The dossier config caps each screenshot at 262,144 bytes (256 KiB) and
+  // the gate rejects the entry otherwise — check before copying, not after.
+  const shotBytes = statSync(join(shotsDir, s.name)).size;
+  if (shotBytes > 262144) {
+    throw new Error(`main.ts: screenshot ${s.name} is ${shotBytes} bytes — over the 262,144-byte cap; re-export it at lower quality`);
+  }
+  console.log(`screenshot ${s.name}: ${shotBytes} bytes (<= 262,144)`);
 }
 
 mkdirSync(outDir, { recursive: true });

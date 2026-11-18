@@ -3,7 +3,8 @@
 // (the garage upgrade overlay, which freezes the world while open).
 // The day/night clock runs here: game.clock advances 0..360 seconds and
 // game.light follows it; dusk flips the music into its night groove and the
-// helicopter rotor sound ticks while the PD heli is overhead.
+// helicopter rotor sound ticks while the PD heli is overhead. At 3+ stars
+// the radio is forced onto the Fuga FM chase groove until the heat drops.
 // URL query ?shot=<name>&seed=1 stages a deterministic scene for screenshots:
 //   shot=chase   — Leo in a car, 3-star police chase, HUD + minimap + objective
 //   shot=mission — beach shootout (mission 3) with gang members and HUD
@@ -11,9 +12,10 @@
 //   shot=police  — roadblock chase: police cars ahead, 4 stars
 //   shot=night   — night drive: headlights, lamp glow, 2-star chase, Mission 7
 //   shot=shop    — garage upgrade shop open, Leo in a car by the Pay-n-Spray
+//   shot=finale  — Mission 9 finale: armored van, 5 stars, PD heli overhead
 //   shot=start   — title screen over the city
 import { clamp, dist, mulberry32, hashSeed, rand } from './utils.js';
-import { buildCity, WORLD, LANDMARKS, randomRoadPoint, randomFreePoint } from './city.js';
+import { buildCity, WORLD, LANDMARKS, districtAt, randomRoadPoint, randomFreePoint } from './city.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createPlayer, updatePlayerOnFoot, updatePlayerDriving, tryEnterCar, damagePlayer, respawn } from './player.js';
@@ -22,8 +24,9 @@ import { spawnPeds, updatePeds, scarePeds, carHitsPeds } from './peds.js';
 import { createWanted, addCrime, updateWanted, spawnPolice, updatePolice, updateHeli, payNSpray } from './police.js';
 import { updateBullets, updatePickups, spawnPickups, WEAPONS } from './combat.js';
 import { createMissionState, startMission, updateMissions, updateGang, missionObjectiveText, currentMissionDef, MIDNIGHT_CHECKPOINTS } from './missions.js';
+import { createSideJobState, updateSideJobs } from './sidejobs.js';
 import { drawWorld, drawHUD, drawTitle, drawPause, drawEndScreen, drawShop } from './render.js';
-import { lightAt, isNight, CYCLE } from './daynight.js';
+import { lightAt, isNight, pedTarget, CYCLE } from './daynight.js';
 import { createShop, buyUpgrade, UPGRADES } from './garage.js';
 
 const SAVE_KEY = 'solmarina-save-v1';
@@ -67,6 +70,7 @@ function buildGame() {
     player,
     wanted: createWanted(),
     missions: createMissionState(),
+    sideJobs: createSideJobState(),
     cars: [],
     peds: [],
     cops: [],
@@ -74,6 +78,11 @@ function buildGame() {
     bullets: [],
     pickups: [],
     particles: [],
+    skids: [],       // handbrake skid marks, fading over 2.5s
+    floaters: [],    // score popups ("DRIFT +$50", "NEAR MISS +$25"), rising
+    shake: 0,        // screen-shake magnitude, decays every frame
+    discovered: new Set(), // districts Leo has entered (first visit pays $25)
+    audioChase: false,     // whether the chase groove is currently forced
     events: [],
     camera: { x: 0, y: 0 },
     time: 0,
@@ -102,9 +111,9 @@ function buildGame() {
     },
   };
   // World population.
-  game.cars.push(...spawnTraffic(city, 14, rng));
-  game.cars.push(...spawnParked(city, 10, rng));
-  game.peds = spawnPeds(city, 26, rng);
+  game.cars.push(...spawnTraffic(city, 18, rng));
+  game.cars.push(...spawnParked(city, 12, rng));
+  game.peds = spawnPeds(city, 30, rng);
   game.pickups = spawnPickups(city, rng, 10);
   return game;
 }
@@ -145,8 +154,8 @@ function handleEvents(dt) {
     else if (ev.type === 'pickup') audio.pickup();
     else if (ev.type === 'cash') audio.cash();
     else if (ev.type === 'hurt') audio.hurt();
-    else if (ev.type === 'crash') audio.crash();
-    else if (ev.type === 'explosion') { addParticles(ev.x, ev.y, '#ff8a2a', 26, 260); addParticles(ev.x, ev.y, '#555', 16, 120); }
+    else if (ev.type === 'crash') { audio.crash(); game.shake = Math.max(game.shake, 6); }
+    else if (ev.type === 'explosion') { addParticles(ev.x, ev.y, '#ff8a2a', 26, 260); addParticles(ev.x, ev.y, '#555', 16, 120); game.shake = Math.max(game.shake, 12); }
     else if (ev.type === 'missionDone') { audio.missionDone(); game.save(); }
     else if (ev.type === 'missionFail') { audio.missionFail(); game.save(); }
     else if (ev.type === 'missionStart') audio.missionStart();
@@ -158,6 +167,7 @@ function handleEvents(dt) {
     else if (ev.type === 'kill') {
       addParticles(ev.x, ev.y, '#c22a2a', 12, 120);
       game.player.stats.kills++;
+      if (ev.who === 'gang') game.player.stats.rep = (game.player.stats.rep || 0) + 5;
       if (ev.who === 'ped' || ev.who === 'gang') addCrime(game.wanted, ev.who === 'ped' ? 15 : 5, game.time);
     } else if (ev.type === 'hit' || ev.type === 'copHit') {
       addParticles(ev.x, ev.y, '#ffd94a', 6, 90);
@@ -168,8 +178,10 @@ function handleEvents(dt) {
     } else if (ev.type === 'heliDown') {
       // Shooting down the PD helicopter pays a bounty and drops a star.
       game.player.money += 500;
+      game.player.stats.rep = (game.player.stats.rep || 0) + 50;
       game.wanted.stars = Math.max(0, game.wanted.stars - 1);
       game.wanted.heat = 0;
+      game.shake = Math.max(game.shake, 10);
       audio.cash();
       game.missions.message = 'Helicopter down! +$500, heat dropped';
       game.missions.messageTimer = 4;
@@ -212,6 +224,28 @@ function update(dt) {
   updateCamera(dt);
   const p = game.player;
 
+  // District discovery: the first visit to each of the eight districts
+  // pays $25 and toasts its name (city.js DISTRICTS).
+  const here = districtAt(p.x, p.y);
+  if (!game.discovered.has(here)) {
+    game.discovered.add(here);
+    p.money += 25;
+    game.events.push({ type: 'toast', text: `Discovered: ${here} — +$25` });
+  }
+  // Chase music: at 3+ stars the radio is forced onto the Fuga FM chase
+  // groove; when the heat drops the driver's station comes back.
+  const chase = game.wanted.stars >= 3;
+  if (chase !== game.audioChase) {
+    game.audioChase = chase;
+    game.audio.setChaseMode(chase);
+    syncRadioChip(game);
+  }
+  // Screen shake decays fast so a crash kicks and settles in half a second.
+  game.shake = Math.max(0, game.shake - dt * 30);
+  // Skid marks fade out over their 2.5-second life.
+  for (const s of game.skids) s.life -= dt;
+  game.skids = game.skids.filter((s) => s.life > 0);
+
   // Global keys.
   if (input.wasPressed('mute')) audio.toggleMute();
   if (input.wasPressed('restart')) { restart(); return; }
@@ -235,6 +269,13 @@ function update(dt) {
     if (input.wasPressed('enter')) tryEnterCar(game, game.time);
     // Honk (in a car only).
     if (input.wasPressed('horn') && p.inCar) game.audio.horn();
+    // C cycles the car radio through its four stations (Sol / Noche /
+    // Fuga / Onda) and shows the new station on the radio chip.
+    if (input.wasPressed('station')) {
+      const label = game.audio.cycleStation();
+      game.events.push({ type: 'toast', text: `Radio: ${label}` });
+      syncRadioChip(game);
+    }
     // G opens the upgrade shop — but only in a car, parked near the garage.
     if (input.wasPressed('garage')) {
       const nearGarage = dist(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y) < 140;
@@ -295,6 +336,21 @@ function update(dt) {
         game.events.push({ type: 'crash' });
       }
     }
+    // Near miss: screaming past a traffic car at 120+ without touching it
+    // pays $25 and pops a floater (each car pays at most once per 3s).
+    if (p.inCar && p.car && Math.abs(p.car.speed) > 120) {
+      for (const car of game.cars) {
+        if (car.kind !== 'traffic') continue;
+        const d = dist(p.car.x, p.car.y, car.x, car.y);
+        if (d < 55 && d > 40 && (!car.nearMissAt || game.time - car.nearMissAt > 3)) {
+          car.nearMissAt = game.time;
+          p.money += 25;
+          p.stats.rep = (p.stats.rep || 0) + 2;
+          game.floaters.push({ x: p.car.x, y: p.car.y - 40, text: 'NEAR MISS +$25', color: '#7ad8ff', life: 1.4, maxLife: 1.4 });
+          game.events.push({ type: 'cash' });
+        }
+      }
+    }
     // Speeding through a crowd scares pedestrians even without a hit.
     if (p.inCar && p.car && Math.abs(p.car.speed) > 120) {
       scarePeds(game.peds, p.x, p.y, 220);
@@ -307,6 +363,14 @@ function update(dt) {
     updatePickups(game, dt);
     updateGang(game, dt, game.time);
     updateMissions(game, dt, game.time);
+    updateSideJobs(game, dt);
+    // The streets thin out after dark: top the peds back up toward the
+    // target for this hour (daynight.pedTarget), a few at a time.
+    const alive = game.peds.filter((pd) => !pd.dead).length;
+    if (alive < pedTarget(game.clock) && Math.random() < dt * 0.5) {
+      const s = randomFreePoint(game.city, Math.random);
+      game.peds.push({ x: s.x, y: s.y, angle: 0, speed: 0, walkSpeed: 30, pace: 1, state: 'walk', target: null, shirt: '#3a6fd8', skin: '#e8b4b8', hair: '#2a2a2a', fleeTimer: 0, panicTimer: 0, chatTimer: 0, chatPartner: null, dead: false, bob: 0 });
+    }
     updateWanted(game.wanted, dt, game.time, false);
     spawnPolice(game, dt);
     updatePolice(game, dt, game.time);
@@ -327,6 +391,9 @@ function update(dt) {
       pt.life -= dt;
     }
     game.particles = game.particles.filter((pt) => pt.life > 0);
+    // Score popups rise and fade over their short life.
+    for (const f of game.floaters) { f.y -= 24 * dt; f.life -= dt; }
+    game.floaters = game.floaters.filter((f) => f.life > 0);
     // Respawn pickups occasionally.
     if (game.pickups.length < 6 && Math.random() < dt * 0.1) {
       const spot = randomFreePoint(game.city, Math.random);
@@ -511,6 +578,46 @@ function stageShot(name) {
     game.cars.push(pc);
     game.cops.push({ x: pc.x, y: pc.y, angle: Math.PI / 2, speed: 190, inCar: true, car: pc, state: 'chase', lastSeen: { x: 1050, y: 750 }, searchTimer: 0, arrestTimer: 0, stunTimer: 0, sirenPhase: 0 });
     game.cars.push(...spawnTraffic(game.city, 5, rng));
+  } else if (name === 'finale') {
+    // Mission 9 finale: Leo in the stolen armored van outside the bank,
+    // 5 stars, PD helicopter overhead, the whole city after him.
+    game.clock = 60; game.light = lightAt(60);
+    const van = makeCar(LANDMARKS.bank.x + 60, LANDMARKS.bank.y + 120, 0.4, {
+      kind: 'player', driver: 'player', color: '#2a2a2e',
+      model: CAR_MODELS.find((m) => m.name === 'Camioneta'),
+    });
+    van.speed = 120;
+    game.cars.push(van);
+    p.inCar = true; p.car = van; p.x = van.x; p.y = van.y;
+    p.money = 4800;
+    game.wanted.stars = 5; game.wanted.heat = 100; game.wanted.lastCrime = 0;
+    game.missions.current = 8; game.missions.stage = 'active';
+    game.missions.timeLimit = 180; game.missions.timer = 35;
+    game.missions.packageCarried = true;
+    game.missions.targetCar = van;
+    game.missions.target = { x: LANDMARKS.boat.x, y: LANDMARKS.boat.y, label: 'Escape to the getaway boat' };
+    // Maya talks Leo through the job — the dialogue card shows on the cover.
+    game.missions.dialogue = { sayer: 'Maya', role: 'Getaway Driver', say: 'The van’s the job, Leo. Bring it to the boat and we’re rich.' };
+    game.missions.dialogueTimer = 8;
+    // The PD helicopter, hovering over the bank.
+    game.heli = { x: van.x + 60, y: van.y - 200, angle: 0, hp: 150, maxHp: 150, rotor: 1.2, smokeTimer: 0, down: false };
+    // Two police cars in pursuit behind the van.
+    for (let i = 0; i < 2; i++) {
+      const pc = makeCar(LANDMARKS.bank.x + 60 - i * 40, LANDMARKS.bank.y + 260 + i * 110, -Math.PI / 2, {
+        kind: 'police', driver: 'police', color: '#1a1a22',
+        model: CAR_MODELS.find((m) => m.name === 'Patrulla'),
+      });
+      pc.speed = 150; pc.siren = true;
+      game.cars.push(pc);
+      game.cops.push({ x: pc.x, y: pc.y, angle: -Math.PI / 2, speed: 170, inCar: true, car: pc, state: 'chase', lastSeen: { x: van.x, y: van.y }, searchTimer: 0, arrestTimer: 0, stunTimer: 0, sirenPhase: 0 });
+    }
+    game.cars.push(...spawnTraffic(game.city, 6, rng));
+    // Fleeing peds near the bank for a busy finale frame.
+    for (let i = 0; i < 8; i++) {
+      const s = randomFreePoint(game.city, rng);
+      game.peds.push({ x: s.x, y: s.y, angle: 0, speed: 0, walkSpeed: 30, pace: 1.6, state: 'flee', target: null, shirt: '#d84a4a', skin: '#e8b4b8', hair: '#2a2a2a', fleeTimer: 3, panicTimer: 0, chatTimer: 0, chatPartner: null, dead: false, bob: 0 });
+    }
+    addParticles(van.x, van.y - 40, '#ffd94a', 8, 90);
   } else if (name === 'play' || name === 'end') {
     // Generic staged play / end frames for the starter shot names.
     p.x = 750; p.y = 750;
@@ -565,12 +672,12 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// Keyboard weapon switching (Digit1/2/3) and shop buying: in the shop the
+// Keyboard weapon switching (Digit1/2/3/4) and shop buying: in the shop the
 // same digits buy upgrades instead of switching weapons.
 window.addEventListener('keydown', (e) => {
   const p = game.player;
   if (game.state === 'shop') {
-    if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
+    if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4') {
       const idx = Number(e.code.slice(-1)) - 1;
       game.shop.selected = idx;
       const msg = buyUpgrade(game, UPGRADES[idx]);
@@ -584,7 +691,15 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit1' && p.weapons.pistol) p.weapon = 'pistol';
   if (e.code === 'Digit2' && p.weapons.smg) p.weapon = 'smg';
   if (e.code === 'Digit3' && p.weapons.shotgun) p.weapon = 'shotgun';
+  if (e.code === 'Digit4' && p.weapons.rifle) p.weapon = 'rifle';
 });
+
+// The DOM radio chip (index.html #radio) shows the station the synth is
+// playing right now; it follows dial changes and the chase groove.
+function syncRadioChip(game) {
+  const el = document.getElementById('radio');
+  if (el) el.textContent = game.audio.stationName();
+}
 
 if (SHOT) stageShot(SHOT);
 requestAnimationFrame(frame);

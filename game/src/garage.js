@@ -1,9 +1,9 @@
 // garage.js — the Pay-n-Spray upgrade shop.
 // Park near the garage and press G to open it. Upgrades are bought with
 // mission and fare money and apply to the car Leo is driving right now:
-// engine (top speed), armour (car health) and a nitro kit (N to boost).
-// Levels stack; prices rise per level. A car with no upgrades object yet
-// gets a fresh one the first time the shop touches it.
+// engine (top speed), armour (car health), grip tires (steering) and a
+// nitro kit (N to boost). Levels stack; prices rise per level. A car with
+// no upgrades object yet gets a fresh one the first time the shop touches it.
 export const UPGRADES = [
   {
     id: 'engine',
@@ -26,6 +26,13 @@ export const UPGRADES = [
     levels: [400],
     max: 1,
   },
+  {
+    id: 'tires',
+    name: 'Grip Tires',
+    desc: '+12% steering grip per level',
+    levels: [250, 500],
+    max: 2,
+  },
 ];
 
 export function createShop() {
@@ -34,7 +41,7 @@ export function createShop() {
 
 export function carUpgrades(car) {
   if (!car.upgrades) {
-    car.upgrades = { engine: 0, armor: 0, nitro: false };
+    car.upgrades = { engine: 0, armor: 0, nitro: false, tires: 0 };
   }
   return car.upgrades;
 }
@@ -57,6 +64,12 @@ export function topSpeedOf(car) {
 // Max health of a car including its armour plating.
 export function maxHealthOf(car) {
   return 100 + 50 * upgradeLevel(car, 'armor');
+}
+
+// Steering grip multiplier from the grip-tire upgrade: +12% per level, so
+// a fully tired car turns noticeably sharper at speed (vehicles.driveCar).
+export function gripOf(car) {
+  return 1 + 0.12 * upgradeLevel(car, 'tires');
 }
 
 export function hasNitro(car) {

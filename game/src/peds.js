@@ -2,7 +2,7 @@
 // The city breathes with the day/night cycle: after dark the streets thin
 // out, everyone walks a little slower, and a few night owls gather on the
 // beach to watch the ocean instead of strolling.
-import { clamp, dist, rand, pick, mulberry32, angleTo, turnToward } from './utils.js';
+import { clamp, dist, rand, pick, mulberry32, angleTo, turnToward, pickWeighted } from './utils.js';
 import { WORLD, randomFreePoint, randomRoadPoint, onRoad, pointInBuilding } from './city.js';
 import { isNight } from './daynight.js';
 
@@ -17,13 +17,17 @@ export function makePed(x, y, opts = {}) {
     angle: rand(0, Math.PI * 2),
     speed: 0,
     walkSpeed: 28 + rand(0, 26),
-    state: opts.state || 'walk', // walk | flee | dead | panic | watch
+    // Pace: most peds stroll, one in five jogs, one in ten ambles slowly.
+    pace: pickWeighted([[1.0, 0.7], [1.6, 0.2], [0.7, 0.1]]),
+    state: opts.state || 'walk', // walk | flee | dead | panic | watch | chat
     target: null,
     shirt: pick(PED_SHIRTS),
     skin: pick(PED_COLORS),
     hair: pick(['#2a2a2a', '#6a4a2a', '#c8c8c8', '#8a5a2a', '#3a2a1a']),
     fleeTimer: 0,
     panicTimer: 0,
+    chatTimer: 0,
+    chatPartner: null,
     dead: false,
     bob: rand(0, Math.PI * 2),
   };
@@ -34,6 +38,20 @@ export function spawnPeds(city, count, rng) {
   for (let i = 0; i < count; i++) {
     const p = randomFreePoint(city, rng);
     peds.push(makePed(p.x, p.y));
+  }
+  // Plaza chatters: two pairs standing by the benches, mid-conversation.
+  // They idle in place, face each other, and wander off after a while.
+  if (city.plaza && city.plaza.benches.length >= 2) {
+    for (let i = 0; i < 2; i++) {
+      const bench = city.plaza.benches[i * 2];
+      const a = makePed(bench.x - 14, bench.y + 16, { state: 'chat' });
+      const b = makePed(bench.x + 14, bench.y + 16, { state: 'chat' });
+      a.angle = angleTo(a.x, a.y, b.x, b.y);
+      b.angle = angleTo(b.x, b.y, a.x, a.y);
+      a.chatPartner = b; b.chatPartner = a;
+      a.chatTimer = 8 + rng() * 8; b.chatTimer = a.chatTimer;
+      peds.push(a, b);
+    }
   }
   return peds;
 }
@@ -76,7 +94,7 @@ export function updatePeds(peds, city, dt, time, clock = 0) {
       }
       const a = angleTo(p.x, p.y, p.target.x, p.target.y);
       p.angle = turnToward(p.angle, a, dt * 6);
-      p.speed = p.walkSpeed * 3.4;
+      p.speed = p.walkSpeed * (p.pace || 1) * 3.4;
       if (dist(p.x, p.y, p.target.x, p.target.y) < 30 || p.fleeTimer <= 0) {
         p.state = 'walk';
         p.target = null;
@@ -87,6 +105,16 @@ export function updatePeds(peds, city, dt, time, clock = 0) {
       p.speed = 0;
       p.angle = turnToward(p.angle, Math.PI / 2, dt * 2);
       if (!night || Math.random() < dt * 0.02) { p.state = 'walk'; p.target = null; }
+    } else if (p.state === 'chat') {
+      // Plaza chatter: stand still, face the conversation partner, and
+      // wander off when the chat runs out (or when gunfire scares them —
+      // scarePeds flips the state to flee, which takes priority).
+      p.speed = 0;
+      if (p.chatPartner && !p.chatPartner.dead) {
+        p.angle = turnToward(p.angle, angleTo(p.x, p.y, p.chatPartner.x, p.chatPartner.y), dt * 3);
+      }
+      p.chatTimer -= dt;
+      if (p.chatTimer <= 0) { p.state = 'walk'; p.target = null; p.chatPartner = null; }
     } else {
       // Stroll: pick a nearby free point, walk to it, idle a moment.
       if (!p.target) {
@@ -104,8 +132,8 @@ export function updatePeds(peds, city, dt, time, clock = 0) {
       } else {
         const a = angleTo(p.x, p.y, p.target.x, p.target.y);
         p.angle = turnToward(p.angle, a, dt * 4);
-        // Everyone walks slower after dark.
-        p.speed = p.walkSpeed * (night ? 0.75 : 1);
+        // Everyone walks slower after dark; joggers keep their pace.
+        p.speed = p.walkSpeed * (p.pace || 1) * (night ? 0.75 : 1);
         if (dist(p.x, p.y, p.target.x, p.target.y) < 16) p.target = null;
       }
     }

@@ -33,6 +33,24 @@ export const rand = (a = 1, b) => (b === undefined ? Math.random() * a : a + Mat
 export const randInt = (a, b) => Math.floor(rand(a, b + 1));
 export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 export const choice = (arr, rng) => arr[Math.floor(rng() * arr.length)];
+// Pick n distinct entries from an array (fewer when the array is shorter).
+export function pickN(arr, n, rng = Math.random) {
+  const copy = arr.slice();
+  const out = [];
+  while (copy.length && out.length < n) {
+    out.push(copy.splice(Math.floor(rng() * copy.length), 1)[0]);
+  }
+  return out;
+}
+// Fisher-Yates shuffle, in place, driven by the given rng (seeded when the
+// caller passes one, so staged scenes stay deterministic).
+export function shuffle(arr, rng = Math.random) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 // Weighted pick: entries are [value, weight]; returns a value.
 export function pickWeighted(entries, rng = Math.random) {
   let total = 0;
@@ -100,6 +118,12 @@ export function resolveCircleRect(p, r, rect) {
   p.x = nx + (dx / d) * r;
   p.y = ny + (dy / d) * r;
   return true;
+}
+// Reputation: 500 points per level, level 1 at 0 points. Returns the level
+// and how far into it the player is (for the REP progress bar on the HUD).
+export function repLevel(rep) {
+  const level = Math.floor(rep / 500) + 1;
+  return { level, into: rep % 500, need: 500 };
 }
 export function fmtMoney(n) {
   return '$' + Math.floor(n).toLocaleString('en-US');

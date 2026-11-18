@@ -18,15 +18,19 @@ export function createPlayer() {
     speed: 0,
     health: 100,
     armor: 0,
+    stamina: 100, // sprint drains it, standing still refills it
+    skidTimer: 0, // throttle for the skid sound while handbraking
     money: 50,
     inCar: false,
     car: null,
     weapon: 'pistol',
-    weapons: { pistol: true, smg: false, shotgun: false },
-    ammo: { pistol: Infinity, smg: 0, shotgun: 0 },
+    weapons: { pistol: true, smg: false, shotgun: false, rifle: false },
+    ammo: { pistol: Infinity, smg: 0, shotgun: 0, rifle: 0 },
     fireTimer: 0,
     hurtTimer: 0,
-    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0 },
+    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0, couriersDone: 0, rampagesDone: 0, rep: 0 },
+    driftTime: 0, // seconds spent handbrake-drifting in the current chain
+    drifting: false,
   };
 }
 
@@ -52,21 +56,28 @@ export function damagePlayer(game, amount, source) {
 }
 
 // On-foot movement: WASD, Shift sprint, mouse aim, click to shoot.
+// Sprinting drains stamina (25/s) and stops working at 0; standing still
+// or walking refills it (15/s), so a sprint is a choice, not a default.
 export function updatePlayerOnFoot(game, dt, time) {
   const p = game.player;
   const input = game.input;
-  const speed = input.is('sprint') ? 250 : 150;
+  const wantSprint = input.is('sprint') && p.stamina > 0;
+  const speed = wantSprint ? 250 : 150;
   let mx = (input.is('right') ? 1 : 0) - (input.is('left') ? 1 : 0);
   let my = (input.is('down') ? 1 : 0) - (input.is('up') ? 1 : 0);
-  if (mx !== 0 || my !== 0) {
+  const moving = mx !== 0 || my !== 0;
+  if (moving) {
     const len = Math.hypot(mx, my);
     mx /= len; my /= len;
     p.x += mx * speed * dt;
     p.y += my * speed * dt;
     p.moveAngle = Math.atan2(my, mx);
     p.speed = speed;
+    if (wantSprint) p.stamina = Math.max(0, p.stamina - 25 * dt);
+    else p.stamina = Math.min(100, p.stamina + 8 * dt);
   } else {
     p.speed = 0;
+    p.stamina = Math.min(100, p.stamina + 15 * dt);
   }
   p.x = clamp(p.x, 24, WORLD - 24);
   p.y = clamp(p.y, 24, WORLD - 24);
@@ -84,11 +95,20 @@ export function updatePlayerOnFoot(game, dt, time) {
     if (p.ammo[p.weapon] !== Infinity) p.ammo[p.weapon]--;
     const bullets = fireWeapon(game, p, weapon, game.input.mouse.wx, game.input.mouse.wy);
     game.bullets.push(...bullets);
+    // Muzzle flash: a short-lived burst at the gun tip, drawn as particles.
+    const fa = angleTo(p.x, p.y, game.input.mouse.wx, game.input.mouse.wy);
+    for (let i = 0; i < 4; i++) {
+      game.particles.push({
+        x: p.x + Math.cos(fa) * 22 + rand(-3, 3), y: p.y + Math.sin(fa) * 22 + rand(-3, 3),
+        vx: Math.cos(fa) * rand(40, 120), vy: Math.sin(fa) * rand(40, 120),
+        life: 0.12, maxLife: 0.12, size: 4 + rand(0, 3), color: pick(['#ffd94a', '#ffb84a', '#fff2b8']),
+      });
+    }
     game.events.push({ type: 'shoot', weapon: p.weapon });
     addCrime(game.wanted, 4, time); // firing a gun in public draws heat
     game.audio.shoot();
   }
-  // Weapon switch (1/2/3) is handled in main.js.
+  // Weapon switch (1/2/3/4) is handled in main.js.
 }
 
 // Enter / exit the nearest car.
@@ -145,6 +165,33 @@ export function updatePlayerDriving(game, dt, time) {
     }
   }
   driveCar(car, drive, dt, time);
+  // Handbrake at speed lays skid marks on the asphalt and plays a squeal
+  // (throttled so it does not stutter every frame). Marks fade after 2.5s.
+  p.skidTimer -= dt;
+  if (drive.handbrake && Math.abs(car.speed) > 40) {
+    game.skids.push({ x: car.x, y: car.y, angle: car.angle, life: 2.5, maxLife: 2.5 });
+    if (game.skids.length > 220) game.skids.splice(0, game.skids.length - 220);
+    if (p.skidTimer <= 0) { p.skidTimer = 0.25; game.audio.skid(); }
+  }
+  // Drift chain: handbrake + steering at speed builds drift time; letting
+  // go (or slowing under 40) banks it as cash + REP with a floater. The
+  // threshold is 50, not 80: the handbrake bleeds speed toward ~56 while
+  // the accelerator is held, so 80 would make drifting unreachable.
+  const drifting = drive.handbrake && Math.abs(car.speed) > 50 && (drive.left || drive.right);
+  if (drifting) {
+    p.driftTime += dt;
+    p.drifting = true;
+  } else if (p.drifting) {
+    if (p.driftTime > 0.8) {
+      const award = Math.round(p.driftTime) * 25;
+      p.money += award;
+      p.stats.rep = (p.stats.rep || 0) + 5;
+      game.floaters.push({ x: car.x, y: car.y - 40, text: `DRIFT +$${award}`, color: '#ffd94a', life: 1.6, maxLife: 1.6 });
+      game.events.push({ type: 'cash' });
+    }
+    p.driftTime = 0;
+    p.drifting = false;
+  }
   // Nitro flame particles trail behind the exhaust while boosting.
   if (nitroActive(car, time)) {
     const bx = car.x - Math.cos(car.angle) * car.model.len * 0.6;

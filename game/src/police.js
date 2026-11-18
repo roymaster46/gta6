@@ -3,8 +3,9 @@
 // Foot cops and police cars run a small state machine: chase the player
 // while they can see them, fall back to searching the last known position
 // when the trail goes cold, and give up when the heat drops. At 4-5 stars a
-// police helicopter joins from above: it spotlights Leo, calls the ground
-// units in faster, and can be shot down for a bounty.
+// police helicopter joins from above and the PD sets roadblocks across the
+// road ahead: it spotlights Leo, calls the ground units in faster, and can
+// be shot down for a bounty.
 import { clamp, dist, angleTo, turnToward, rand } from './utils.js';
 import { WORLD, randomFreePoint, collideBuildings } from './city.js';
 import { makeCar, CAR_MODELS } from './vehicles.js';
@@ -19,6 +20,7 @@ export function createWanted() {
     copSpawnTimer: 0,
     maxCops: 0,
     heliTimer: 0,     // respawn timer for the helicopter
+    roadblockTimer: 18, // seconds until the PD tries its first roadblock
   };
 }
 
@@ -57,7 +59,7 @@ export function makeCop(x, y, inCar) {
     speed: 0,
     inCar,
     car: null,
-    state: 'chase', // chase | search | patrol
+    state: 'chase', // chase | search | patrol | roadblock
     lastSeen: { x, y },
     searchTimer: 0,
     arrestTimer: 0,
@@ -164,6 +166,42 @@ export function spawnPolice(game, dt) {
     game.cars.push(car);
     game.cops.push(cop);
   }
+  maybeRoadblock(game, dt);
+}
+
+// Roadblocks at 4-5 stars: the PD parks two interceptors across the road
+// ahead of Leo, lights flashing. They hold position until he gets close,
+// then join the chase. At most one roadblock at a time, and never while
+// the player is on foot (a roadblock is a driving problem).
+export function maybeRoadblock(game, dt) {
+  const wanted = game.wanted;
+  if (wanted.stars < 4 || !game.player.inCar || !game.player.car) return;
+  if (game.cops.some((c) => c.state === 'roadblock')) return;
+  wanted.roadblockTimer -= dt;
+  if (wanted.roadblockTimer > 0) return;
+  wanted.roadblockTimer = 45; // one roadblock at most every 45 seconds
+  const car = game.player.car;
+  const ahead = 340;
+  const cx = car.x + Math.cos(car.angle) * ahead;
+  const cy = car.y + Math.sin(car.angle) * ahead;
+  const perp = car.angle + Math.PI / 2;
+  for (const off of [-18, 18]) {
+    const x = clamp(cx + Math.cos(perp) * off, 60, WORLD - 60);
+    const y = clamp(cy + Math.sin(perp) * off, 60, WORLD - 160);
+    const pc = makeCar(x, y, perp, {
+      kind: 'police', driver: 'police', color: '#1a1a22',
+      model: CAR_MODELS.find((m) => m.name === 'Patrulla'),
+    });
+    pc.speed = 0; pc.siren = true;
+    const cop = makeCop(x, y, true);
+    cop.car = pc;
+    cop.state = 'roadblock';
+    cop.lastSeen = { x: car.x, y: car.y };
+    game.cars.push(pc);
+    game.cops.push(cop);
+  }
+  game.events.push({ type: 'toast', text: 'Roadblock ahead — go around or through!' });
+  game.events.push({ type: 'siren' });
 }
 
 // A cop can "see" Leo within ~700 units (further when the helicopter is
@@ -190,6 +228,18 @@ export function updatePolice(game, dt, time) {
       continue;
     }
     const d = dist(cop.x, cop.y, px, py);
+    // Roadblock cops hold position until Leo gets close, then join the
+    // chase. When the heat drops below 2 stars the PD stands them down
+    // and their interceptors drive off.
+    if (cop.state === 'roadblock') {
+      if (game.wanted.stars < 2) {
+        if (cop.car) game.cars = game.cars.filter((c) => c !== cop.car);
+        cops.splice(i, 1);
+        continue;
+      }
+      if (d < 260) cop.state = 'chase';
+      else continue;
+    }
     // State machine: chase while visible, search the last known spot when
     // the trail goes cold, give up entirely when the heat drops.
     if (cop.state === 'chase' && !canSee(game, cop, px, py)) {

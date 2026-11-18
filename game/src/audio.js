@@ -1,8 +1,12 @@
 // audio.js — fully synthesized WebAudio sound for Solmarina.
 // No audio files: every effect is an oscillator / noise buffer built in code.
-// New in this revision: a nitro whoosh, a shop-purchase chime, a helicopter
-// rotor chop, and a night mode for the music — after dark the sunny
-// Am–F–C–G groove swaps to a moodier Am–Dm–Em–Am progression.
+// New in this revision: a four-station car radio (radio.js) — C cycles
+// Sol FM, Noche FM, Fuga FM and Onda FM, each with its own day and night
+// groove and tempo; at 3+ stars the chase groove takes over until the heat
+// drops. Also new: a nitro whoosh, a shop-purchase chime, a helicopter
+// rotor chop, a tire skid squeal, and a night mode for the music.
+import { STATIONS, stationAt, stationChords, stationStepDur, stationLabel, stationNowPlaying, nextStation, CHASE_STATION } from './radio.js';
+
 export function createAudio() {
   let ctx = null;
   let master = null;
@@ -13,16 +17,16 @@ export function createAudio() {
   let musicStep = 0;
   // Two chord sets for the music loop; setNightMode swaps the active one.
   let nightMode = false;
-  const DAY_CHORDS = [
-    [220.0, 261.63, 329.63], [174.61, 220.0, 261.63],
-    [261.63, 329.63, 392.0], [196.0, 246.94, 293.66],
-  ];
-  const DAY_BASS = [110.0, 87.31, 130.81, 98.0];
-  const NIGHT_CHORDS = [
-    [220.0, 261.63, 329.63], [146.83, 174.61, 220.0],
-    [164.81, 196.0, 246.94], [220.0, 261.63, 329.63],
-  ];
-  const NIGHT_BASS = [110.0, 73.42, 82.41, 110.0];
+  // Radio: which station the dial is on, and whether the chase groove is
+  // forcing Fuga FM while the wanted level is 3+ stars.
+  let stationIndex = 0;
+  let chaseMode = false;
+
+  // The station the synth is actually playing right now: the chase groove
+  // wins while the heat is on, otherwise the station on the dial.
+  function activeStation() {
+    return chaseMode ? STATIONS[CHASE_STATION] : stationAt(stationIndex);
+  }
 
   function ensure() {
     if (ctx) {
@@ -81,6 +85,47 @@ export function createAudio() {
     src.start(t); src.stop(t + dur + 0.05);
   }
 
+  // One 8th-note step of the radio: the active station's chord and bass,
+  // read fresh every step so a station change, the chase groove or night
+  // falling all land mid-bar instead of at the next track.
+  function playMusicStep() {
+    if (muted || !ctx) return;
+    const station = activeStation();
+    const { chords, bass } = stationChords(station, nightMode);
+    const stepDur = stationStepDur(station);
+    const chord = chords[Math.floor(musicStep / 4) % 4];
+    const note = chord[musicStep % 3];
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = note * 2;
+    g.gain.setValueAtTime(0.16, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.8);
+    osc.connect(g); g.connect(musicGain);
+    osc.start(t); osc.stop(t + stepDur * 2);
+    if (musicStep % 4 === 0) {
+      const b = ctx.createOscillator();
+      const bg = ctx.createGain();
+      b.type = 'sine';
+      b.frequency.value = bass[Math.floor(musicStep / 4) % 4];
+      bg.gain.setValueAtTime(0.25, t);
+      bg.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 3.5);
+      b.connect(bg); bg.connect(musicGain);
+      b.start(t); b.stop(t + stepDur * 4);
+    }
+    musicStep++;
+  }
+
+  // Re-time the music interval to the active station's tempo. Called when
+  // the dial moves or the chase groove takes over; a no-op while the music
+  // is off (startMusic starts it at the right tempo anyway).
+  function restartMusicTimer() {
+    if (!musicTimer) return;
+    clearInterval(musicTimer);
+    musicTimer = setInterval(playMusicStep, stationStepDur(activeStation()) * 1000);
+  }
+
   const api = {
     unlock() { ensure(); },
     get muted() { return muted; },
@@ -94,6 +139,26 @@ export function createAudio() {
     // active chord set on every step, so the change takes effect mid-bar.
     setNightMode(on) {
       nightMode = !!on;
+    },
+    // The radio dial: cycle to the next station and return its label for
+    // the HUD chip. The tempo follows the new station (see restartMusic).
+    cycleStation() {
+      stationIndex = nextStation(stationIndex);
+      restartMusicTimer();
+      return stationLabel(stationAt(stationIndex));
+    },
+    // Label for the HUD radio chip ("♪ Sol FM — sunny coastal groove ·
+    // "Sunset Drive" — The Marinas").
+    stationName() {
+      return stationNowPlaying(activeStation());
+    },
+    // Chase music: at 3+ stars the tense Fuga FM groove takes over; when
+    // the heat drops the dial goes back to the driver's station.
+    setChaseMode(on) {
+      on = !!on;
+      if (on === chaseMode) return;
+      chaseMode = on;
+      restartMusicTimer();
     },
     shoot() {
       noiseHit(0.12, 0.5, 1800, 'highpass');
@@ -119,6 +184,8 @@ export function createAudio() {
     door() { noiseHit(0.08, 0.25, 900, 'bandpass'); },
     crash() { noiseHit(0.25, 0.5, 500, 'lowpass'); blip(120, 0.15, 'square', 0.2, 50); },
     horn() { blip(370, 0.25, 'square', 0.12); blip(466, 0.25, 'square', 0.1); },
+    // Tire squeal while handbraking at speed (throttled by the caller).
+    skid() { noiseHit(0.18, 0.2, 1200, 'bandpass'); },
     click() { blip(800, 0.05, 'square', 0.15); },
     // Nitro boost: a rising filtered whoosh.
     nitro() {
@@ -167,36 +234,9 @@ export function createAudio() {
 
     startMusic() {
       if (!ensure() || musicTimer) return;
-      // Sunny coastal groove by day (Am – F – C – G), moodier minor
-      // progression by night (Am – Dm – Em – Am). 8th notes at 112 BPM.
-      const stepDur = 60 / 112 / 2;
-      musicTimer = setInterval(() => {
-        if (muted) return;
-        const chords = nightMode ? NIGHT_CHORDS : DAY_CHORDS;
-        const bass = nightMode ? NIGHT_BASS : DAY_BASS;
-        const chord = chords[Math.floor(musicStep / 4) % 4];
-        const note = chord[musicStep % 3];
-        const t = ctx.currentTime;
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.value = note * 2;
-        g.gain.setValueAtTime(0.16, t);
-        g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.8);
-        osc.connect(g); g.connect(musicGain);
-        osc.start(t); osc.stop(t + stepDur * 2);
-        if (musicStep % 4 === 0) {
-          const b = ctx.createOscillator();
-          const bg = ctx.createGain();
-          b.type = 'sine';
-          b.frequency.value = bass[Math.floor(musicStep / 4) % 4];
-          bg.gain.setValueAtTime(0.25, t);
-          bg.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 3.5);
-          b.connect(bg); bg.connect(musicGain);
-          b.start(t); b.stop(t + stepDur * 4);
-        }
-        musicStep++;
-      }, stepDur * 1000);
+      // The radio starts on the dial's station at its own tempo; every
+      // step reads the active station fresh (see playMusicStep).
+      musicTimer = setInterval(playMusicStep, stationStepDur(activeStation()) * 1000);
     },
     stopMusic() {
       if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }

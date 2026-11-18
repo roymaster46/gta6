@@ -1,9 +1,11 @@
 // city.js — Solmarina map: roads, buildings, beach, park, port, bridge.
 // World is 2400x2400. Roads form a grid; blocks hold buildings, parks and
 // landmarks. All placement is deterministic from a seed so ?shot= scenes match.
-// New in this revision: billboards along the main roads, a plaza with benches
-// next to Palm Park, beach kiosks on Playa Sol, and a glow radius on every
-// street lamp so the renderer can light them up after dark.
+// New in this revision: eight named districts (districtAt) covering the
+// whole map for the HUD, the minimap and the discovery bonus, plus
+// billboards along the main roads, a plaza with benches next to Palm Park,
+// beach kiosks on Playa Sol, and a glow radius on every street lamp so the
+// renderer can light them up after dark.
 import { mulberry32, pick, resolveCircleRect } from './utils.js';
 
 export const WORLD = 2400;
@@ -32,6 +34,31 @@ const BUILDING_COLORS = [
   '#d8a0a0', '#b5c9a8', '#e0c090', '#9fb8c8', '#f0e0c0', '#c8b098',
 ];
 const ROOF_COLORS = ['#8a5a3b', '#6b4a3a', '#7a6a5a', '#5a6a7a', '#9a7a5a'];
+
+// Eight named districts cover the map: the HUD and the minimap show the
+// one Leo is standing in, and entering a new one for the first time pays a
+// small discovery bonus (see main.js). The rects tile the city with no
+// gaps: the north strip is the Marina, the south strip is Playa Sol, and
+// the port owns the whole east edge.
+export const DISTRICTS = [
+  { name: 'Marina', x: 0, y: 0, w: WORLD, h: 300 },
+  { name: 'Old Town', x: 0, y: 300, w: 750, h: 900 },
+  { name: 'Downtown', x: 750, y: 300, w: 900, h: 900 },
+  { name: 'Hospital Row', x: 1650, y: 300, w: 750, h: 900 },
+  { name: 'Palm Park', x: 0, y: 1200, w: 1200, h: 600 },
+  { name: 'Portside', x: 1200, y: 1200, w: 1200, h: 960 },
+  { name: 'Safehouse Hills', x: 0, y: 1800, w: 1200, h: 360 },
+  { name: 'Playa Sol', x: 0, y: 2160, w: WORLD, h: 240 },
+];
+
+// The district a point is standing in ('Solmarina' when outside them all,
+// which the tiling above makes impossible — the fallback is just safety).
+export function districtAt(x, y) {
+  for (const d of DISTRICTS) {
+    if (x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h) return d.name;
+  }
+  return 'Solmarina';
+}
 
 // Roadside billboards: fixed spots, fixed copy — part of the city's look.
 const BILLBOARDS = [

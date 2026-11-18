@@ -46,6 +46,13 @@ export function isNight(t) {
   return phaseAt(t).name === 'Night';
 }
 
+// Dusk or Dawn: the sun is low, the sky goes orange-pink, and the renderer
+// tints the whole world warm for the half-minute the phase lasts.
+export function isGoldenHour(t) {
+  const name = phaseAt(t).name;
+  return name === 'Dusk' || name === 'Dawn';
+}
+
 export function isDark(t) {
   return lightAt(t) < 0.7;
 }
@@ -77,9 +84,9 @@ export function clockLabel(t) {
 // out after dark, but the beach keeps a few night owls.
 export function pedTarget(t) {
   const p = phaseAt(t);
-  if (p.name === 'Night') return 12;
-  if (p.name === 'Dusk' || p.name === 'Dawn') return 18;
-  return 26;
+  if (p.name === 'Night') return 14;
+  if (p.name === 'Dusk' || p.name === 'Dawn') return 20;
+  return 30;
 }
 
 // Traffic cruise factor by hour: everyone drives a little slower at night.

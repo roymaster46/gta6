@@ -11,6 +11,7 @@ export const WEAPONS = {
   pistol: { name: 'Pistol', damage: 34, rate: 0.28, speed: 620, spread: 0.05, range: 520, mag: 12, auto: false, color: '#ffd94a' },
   smg: { name: 'SMG', damage: 18, rate: 0.09, speed: 700, spread: 0.11, range: 460, mag: 30, auto: true, color: '#ffb84a' },
   shotgun: { name: 'Shotgun', damage: 16, rate: 0.7, speed: 560, spread: 0.22, range: 300, mag: 6, auto: false, pellets: 5, color: '#ff8a4a' },
+  rifle: { name: 'Rifle', damage: 55, rate: 0.9, speed: 900, spread: 0.02, range: 700, mag: 5, auto: false, color: '#7ad8ff' },
 };
 
 export function makeBullet(x, y, angle, weapon, owner) {
@@ -132,9 +133,10 @@ export function makePickup(x, y, kind) {
   return { x, y, kind, bob: rand(0, Math.PI * 2), life: 60 };
 }
 export function spawnPickups(city, rng, count = 10) {
-  // Rotation covers every pickup kind, so the shotgun (weapon 3) is actually
-  // obtainable in the world — before this change no shotgun ever spawned.
-  const kinds = ['health', 'armor', 'smg', 'shotgun', 'health', 'armor', 'cash'];
+  // Rotation covers every pickup kind, so the shotgun (weapon 3) and the
+  // rifle (weapon 4) are actually obtainable in the world — before this
+  // change no shotgun ever spawned, and the rifle did not exist at all.
+  const kinds = ['health', 'armor', 'smg', 'shotgun', 'rifle', 'health', 'armor', 'cash'];
   const out = [];
   for (let i = 0; i < count; i++) {
     const p = randomFreePoint(city, rng);
@@ -163,6 +165,7 @@ export function applyPickup(game, pk) {
   if (pk.kind === 'armor') { p.armor = clamp(p.armor + 50, 0, 100); game.events.push({ type: 'toast', text: '+50 Armor' }); }
   if (pk.kind === 'smg') { p.weapons.smg = true; p.weapon = 'smg'; p.ammo.smg = (p.ammo.smg || 0) + 60; game.events.push({ type: 'toast', text: 'SMG picked up!' }); }
   if (pk.kind === 'shotgun') { p.weapons.shotgun = true; p.weapon = 'shotgun'; p.ammo.shotgun = (p.ammo.shotgun || 0) + 12; game.events.push({ type: 'toast', text: 'Shotgun picked up!' }); }
+  if (pk.kind === 'rifle') { p.weapons.rifle = true; p.weapon = 'rifle'; p.ammo.rifle = (p.ammo.rifle || 0) + 10; game.events.push({ type: 'toast', text: 'Viper Rifle picked up! Press 4.' }); }
   if (pk.kind === 'cash') { p.money += 25; game.events.push({ type: 'toast', text: '+$25 found cash' }); }
   game.events.push({ type: 'pickup' });
 }

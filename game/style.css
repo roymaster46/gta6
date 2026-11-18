@@ -29,8 +29,27 @@ html, body {
   white-space: nowrap;
   z-index: 10;
 }
+#radio {
+  position: fixed;
+  left: 12px;
+  bottom: 100px;
+  color: #ffd94a;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 217, 74, 0.35);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  max-width: 46vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 10;
+}
 /* The upgrade shop is drawn on the canvas (render.js drawShop), so it needs
-   no DOM of its own — the hint bar is the only overlay element. */
+   no DOM of its own — the hint bar and radio chip are the only overlays. */
 /* On narrow screens the one-line hint would overflow: let it wrap. */
 @media (max-width: 700px) {
   #hint {
