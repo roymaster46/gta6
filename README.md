@@ -1,0 +1,104 @@
+# SOLMARINA — Open-World Crime Game
+
+[![make.fun bounty](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/roymaster46/gta6/rank.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/roymaster46/gta6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+
+**Solmarina** is an original top-down 2D open-world crime game set in a sun-soaked
+coastal city. You are **Leo Marín**, a driver-for-hire who came back to Solmarina
+with $50 and a borrowed jacket. Drive fares, steal cars, dodge the Solmarina PD —
+and pull the heist of the decade.
+
+Everything is original: the city, characters, vehicles, story, art and sounds.
+No Rockstar / GTA names, characters, map, art or music are used. All art is drawn
+in Canvas 2D and all sound is synthesized with WebAudio — the game ships as plain
+static files and makes **zero network requests**.
+
+## The city
+
+A 2400×2400 open world: a road grid with traffic and sidewalks, a beach and ocean
+edge, Palm Park, the port with docks and a getaway boat, the Marina Bridge, the
+Solmarina Bank, a Pay-n-Spray garage, a hospital and Leo's safehouse. Camera
+follows you on foot and in a car.
+
+## Systems
+
+- **On foot** — WASD to move, Shift to sprint, mouse to aim, click to shoot.
+- **Cars** — parked cars and live traffic driving road lanes. Press E to steal the
+  nearest car; drive with WASD/arrows, Space for handbrake. Cars take damage and
+  can be wrecked.
+- **Traffic & pedestrians** — traffic AI follows road waypoints and brakes for
+  jams; pedestrians stroll the sidewalks and flee gunfire and crashes.
+- **Wanted 0–5 stars** — car theft, shooting and running over peds raise heat.
+  Foot cops chase and try to arrest you; police cars chase and ram. Heat decays
+  when you stay clean; Pay-n-Spray clears your wanted level for cash.
+- **Busted / Wasted** — arrested or killed, you lose some money and wake up at
+  the hospital / safehouse.
+- **Missions (5-story chain)** — 1) First Fare, 2) Hot Wheels, 3) Beach Shootout,
+  4) The Getaway, 5) Solmarina Heist — each with an objective banner and a
+  pulsing minimap marker. Plus repeatable taxi fares for cash.
+- **Money, health, armor** — earn from missions and fares; pick up health,
+  armor, an SMG and found cash around the city.
+- **HUD & minimap** — health/armor bars, money, wanted stars, objective text,
+  speedometer, and a live minimap (player, cops, mission marker, roads).
+- **Menus & save** — title screen with story intro, pause, busted/wasted screen
+  with stats, restart; progress (money, missions, best) saves to localStorage.
+- **Audio** — synthesized only: engine hum, gunshots, sirens, pickup blips and a
+  sunny arpeggio soundtrack. M mutes.
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| WASD / Arrows | Move on foot / drive |
+| Shift | Sprint |
+| Mouse + Click | Aim / shoot |
+| E | Enter / exit nearest car |
+| F | Start next mission (or Pay-n-Spray near the garage) |
+| 1 / 2 / 3 | Pistol / SMG / Shotgun |
+| Space | Handbrake |
+| P / Esc | Pause |
+| M | Mute |
+| R | Restart |
+
+## How to run
+
+```sh
+node serve.ts
+# open http://localhost:8080
+```
+
+No build step, no install, no network. Any static file server works; open
+`game/index.html` from a server (ES modules need http, not `file://`).
+
+## Screenshots
+
+Deterministic scenes are staged with `?shot=<name>&seed=1`:
+
+- `?shot=chase` — 3-star police chase in the Marina GT
+- `?shot=mission` — beach shootout against the Vipers
+- `?shot=city` — busy street with a taxi fare
+- `?shot=police` — 4-star roadblock escape
+
+## Layout
+
+- `game/index.html`, `game/style.css` — page shell
+- `game/src/main.js` — boot, loop, state machine, save, shot staging
+- `game/src/city.js` — map, roads, buildings, collision
+- `game/src/player.js` — on-foot + driving control, damage, respawn
+- `game/src/vehicles.js` — car physics, traffic AI
+- `game/src/peds.js` — pedestrian AI
+- `game/src/police.js` — wanted level + police AI
+- `game/src/missions.js` — story chain + taxi fares
+- `game/src/combat.js` — weapons, bullets, pickups
+- `game/src/render.js` — world, HUD, minimap, menus
+- `game/src/audio.js` — synthesized SFX + music
+- `game/src/input.js` — keyboard / mouse
+- `game/src/utils.js` — math, seeded RNG, helpers
+- `main.ts` — entrypoint: copies game/ + screenshots/ to /output, writes dossier.json
+- `screenshots/` — 4 real renders of the game
+
+---
+
+Built for the [make.fun GTA 6 bounty](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01).
+Want to build your own? Start at [make.fun](https://make.fun/?ref=26tnw136).

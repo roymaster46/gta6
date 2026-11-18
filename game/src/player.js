@@ -1,0 +1,184 @@
+// player.js — Leo Marín on foot and behind the wheel.
+// Owns movement, entering/exiting cars, shooting, damage and respawn.
+import { clamp, dist, angleTo, turnToward } from './utils.js';
+import { WORLD, collideBuildings, LANDMARKS } from './city.js';
+import { nearestCar, driveCar } from './vehicles.js';
+import { fireWeapon, WEAPONS } from './combat.js';
+import { addCrime } from './police.js';
+
+export function createPlayer() {
+  return {
+    x: LANDMARKS.safehouse.x + 40,
+    y: LANDMARKS.safehouse.y + 40,
+    angle: 0, // facing (aim) angle
+    moveAngle: 0,
+    speed: 0,
+    health: 100,
+    armor: 0,
+    money: 50,
+    inCar: false,
+    car: null,
+    weapon: 'pistol',
+    weapons: { pistol: true, smg: false, shotgun: false },
+    ammo: { pistol: Infinity, smg: 0, shotgun: 0 },
+    fireTimer: 0,
+    hurtTimer: 0,
+    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0 },
+  };
+}
+
+export function damagePlayer(game, amount, source) {
+  const p = game.player;
+  if (p.hurtTimer > 0 && source === 'bullet') return;
+  let remaining = amount;
+  if (p.armor > 0) {
+    const absorbed = Math.min(p.armor, remaining * 0.6);
+    p.armor -= absorbed;
+    remaining -= absorbed;
+  }
+  p.health -= remaining;
+  p.hurtTimer = 0.35;
+  game.events.push({ type: 'hurt' });
+  if (p.health <= 0) {
+    p.health = 0;
+    game.events.push({ type: 'wasted', reason: source === 'arrest' ? 'arrested' : 'wasted' });
+  }
+}
+
+// On-foot movement: WASD, Shift sprint, mouse aim, click to shoot.
+export function updatePlayerOnFoot(game, dt, time) {
+  const p = game.player;
+  const input = game.input;
+  const speed = input.is('sprint') ? 250 : 150;
+  let mx = (input.is('right') ? 1 : 0) - (input.is('left') ? 1 : 0);
+  let my = (input.is('down') ? 1 : 0) - (input.is('up') ? 1 : 0);
+  if (mx !== 0 || my !== 0) {
+    const len = Math.hypot(mx, my);
+    mx /= len; my /= len;
+    p.x += mx * speed * dt;
+    p.y += my * speed * dt;
+    p.moveAngle = Math.atan2(my, mx);
+    p.speed = speed;
+  } else {
+    p.speed = 0;
+  }
+  p.x = clamp(p.x, 24, WORLD - 24);
+  p.y = clamp(p.y, 24, WORLD - 24);
+  collideBuildings(game.city, p, 13);
+
+  // Aim at the mouse (world coords set by main.js each frame).
+  p.angle = angleTo(p.x, p.y, game.input.mouse.wx, game.input.mouse.wy);
+
+  // Shooting.
+  p.fireTimer -= dt;
+  const weapon = WEAPONS[p.weapon];
+  const wantFire = weapon.auto ? input.mouse.down : input.mouse.clicked;
+  if (wantFire && p.fireTimer <= 0 && (p.ammo[p.weapon] === Infinity || p.ammo[p.weapon] > 0)) {
+    p.fireTimer = weapon.rate;
+    if (p.ammo[p.weapon] !== Infinity) p.ammo[p.weapon]--;
+    const bullets = fireWeapon(game, p, weapon, game.input.mouse.wx, game.input.mouse.wy);
+    game.bullets.push(...bullets);
+    game.events.push({ type: 'shoot', weapon: p.weapon });
+    addCrime(game.wanted, 4, time); // firing a gun in public draws heat
+    game.audio.shoot();
+  }
+  // Weapon switch (1/2/3) is handled in main.js.
+}
+
+// Enter / exit the nearest car.
+export function tryEnterCar(game, time) {
+  const p = game.player;
+  if (p.inCar) {
+    // Exit the car.
+    const car = p.car;
+    const side = { x: car.x - Math.sin(car.angle) * 34, y: car.y + Math.cos(car.angle) * 34 };
+    p.x = side.x; p.y = side.y;
+    p.inCar = false;
+    p.car = null;
+    car.driver = null;
+    car.speed = 0;
+    game.events.push({ type: 'door' });
+    return true;
+  }
+  const car = nearestCar(game.cars, p.x, p.y, 95);
+  if (!car) return false;
+  const wasParked = car.kind === 'parked';
+  const wasTraffic = car.kind === 'traffic';
+  p.inCar = true;
+  p.car = car;
+  car.driver = 'player';
+  car.kind = 'player';
+  car.speed = 0;
+  game.events.push({ type: 'door' });
+  if (wasTraffic || wasParked) {
+    p.stats.carsStolen++;
+    addCrime(game.wanted, wasTraffic ? 12 : 6, time);
+    game.events.push({ type: 'toast', text: wasTraffic ? 'Car jacked! +wanted' : 'Car taken' });
+  }
+  return true;
+}
+
+export function updatePlayerDriving(game, dt, time) {
+  const p = game.player;
+  const car = p.car;
+  if (!car) { p.inCar = false; return; }
+  const input = game.input;
+  const drive = {
+    up: input.is('up'), down: input.is('down'),
+    left: input.is('left'), right: input.is('right'),
+    handbrake: input.is('handbrake'),
+  };
+  driveCar(car, drive, dt);
+  // Car vs buildings: push out and damage on hard hits.
+  const before = { x: car.x, y: car.y };
+  const pos = { x: car.x, y: car.y };
+  if (collideBuildings(game.city, pos, 20)) {
+    const impact = Math.abs(car.speed);
+    car.x = pos.x; car.y = pos.y;
+    car.speed *= -0.25;
+    if (impact > 120) {
+      car.damage += impact * 0.06;
+      car.health = Math.max(0, 100 - car.damage);
+      game.events.push({ type: 'crash' });
+      game.audio.crash();
+    }
+  }
+  p.x = car.x; p.y = car.y;
+  p.angle = car.angle;
+  // Engine sound follows speed.
+  game.audio.engine(Math.abs(car.speed) / car.model.top);
+  // Wrecked car: smoke, then the player is forced out.
+  if (car.health <= 0 && car.damage > 0) {
+    game.events.push({ type: 'explosion', x: car.x, y: car.y });
+    game.audio.explosion();
+    car.health = 100; car.damage = 0;
+    tryEnterCar(game, time);
+    damagePlayer(game, 20, 'crash');
+  }
+}
+
+// Busted / wasted: lose some cash, respawn at the hospital or safehouse.
+export function respawn(game, kind) {
+  const p = game.player;
+  const lost = Math.min(p.money, Math.floor(p.money * 0.2) + 20);
+  p.money -= lost;
+  p.deaths++;
+  if (p.inCar && p.car) {
+    p.car.driver = null;
+    p.car.kind = 'parked';
+    p.car.speed = 0;
+    p.car = null;
+    p.inCar = false;
+  }
+  const spot = kind === 'busted' ? LANDMARKS.hospital : LANDMARKS.safehouse;
+  p.x = spot.x + 40;
+  p.y = spot.y + 40;
+  p.health = 100;
+  p.armor = 0;
+  game.wanted.stars = 0;
+  game.wanted.heat = 0;
+  game.cops.length = 0;
+  game.cars = game.cars.filter((c) => c.kind !== 'police');
+  game.audio.engine(null);
+  return lost;
+}
