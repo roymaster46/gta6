@@ -14,7 +14,7 @@ export function createInput(canvas) {
     ShiftLeft: 'sprint', ShiftRight: 'sprint',
     Space: 'handbrake',
     KeyE: 'enter', KeyP: 'pause', KeyM: 'mute', KeyR: 'restart',
-    KeyF: 'interact', Escape: 'escape', Enter: 'confirm',
+    KeyF: 'interact', Escape: 'escape', Enter: 'confirm', KeyH: 'horn',
   };
 
   function onKeyDown(e) {

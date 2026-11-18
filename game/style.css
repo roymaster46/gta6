@@ -29,3 +29,12 @@ html, body {
   white-space: nowrap;
   z-index: 10;
 }
+/* On narrow screens the one-line hint would overflow: let it wrap. */
+@media (max-width: 700px) {
+  #hint {
+    white-space: normal;
+    text-align: center;
+    max-width: 92vw;
+    font-size: 11px;
+  }
+}

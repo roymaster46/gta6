@@ -108,8 +108,9 @@ export function drawWorld(ctx, game, view) {
   // Port docks.
   ctx.fillStyle = '#8a6a4a';
   for (const d of city.docks) ctx.fillRect(d.x, d.y, d.w, d.h);
-  // Getaway boat.
+  // Getaway boat at the port, and the buyer's yacht at the marina (mission 6).
   drawBoat(ctx, LANDMARKS.boat.x, LANDMARKS.boat.y, game.time);
+  drawBoat(ctx, LANDMARKS.yacht.x, LANDMARKS.yacht.y, game.time, { hull: '#f2e8c8', cabin: '#2a6a9a', scale: 1.35 });
 
   // Buildings with fake height shading.
   for (const b of city.buildings) {
@@ -155,14 +156,9 @@ export function drawWorld(ctx, game, view) {
 
   // Pickups.
   for (const pk of game.pickups) drawPickup(ctx, pk);
-  // Mission target marker (pulsing).
+  // Mission / taxi target marker (pulsing). drawMissionMarker picks the
+  // mission target while a mission is active, else the taxi marker.
   drawMissionMarker(ctx, game);
-  // Taxi markers.
-  if (game.missions.taxi) {
-    const t = game.missions.taxi;
-    const dest = t.hasPassenger ? t.dropoff : t.pickup;
-    drawMarker(ctx, dest.x, dest.y, t.hasPassenger ? '#e8c832' : '#4ad8d0', 'TAXI');
-  }
   // Gang members (with health bars).
   for (const g of game.gang) {
     if (g.dead) continue;
@@ -202,22 +198,24 @@ export function drawWorld(ctx, game, view) {
   ctx.restore();
 }
 
-function drawBoat(ctx, x, y, time) {
+function drawBoat(ctx, x, y, time, style = {}) {
   const bob = Math.sin(time * 1.5) * 3;
+  const s = style.scale || 1;
   ctx.save();
   ctx.translate(x, y + bob);
-  ctx.fillStyle = '#e8e8e8';
+  ctx.scale(s, s);
+  ctx.fillStyle = style.hull || '#e8e8e8';
   ctx.beginPath();
   ctx.moveTo(-34, 0); ctx.lineTo(34, 0); ctx.lineTo(24, 16); ctx.lineTo(-24, 16);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#d84a4a';
+  ctx.fillStyle = style.cabin || '#d84a4a';
   ctx.fillRect(-14, -18, 28, 18);
   ctx.restore();
 }
 
 function drawPickup(ctx, pk) {
   const bob = Math.sin(pk.bob) * 3;
-  const colors = { health: '#e84a4a', armor: '#3a6fd8', smg: '#e8c832', cash: '#3ab86a' };
+  const colors = { health: '#e84a4a', armor: '#3a6fd8', smg: '#e8c832', shotgun: '#ff8a4a', cash: '#3ab86a' };
   ctx.save();
   ctx.translate(pk.x, pk.y + bob);
   ctx.fillStyle = 'rgba(0,0,0,0.2)';
@@ -227,7 +225,7 @@ function drawPickup(ctx, pk) {
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(pk.kind === 'health' ? '+' : pk.kind === 'armor' ? 'A' : pk.kind === 'smg' ? 'S' : '$', 0, 4);
+  ctx.fillText(pk.kind === 'health' ? '+' : pk.kind === 'armor' ? 'A' : pk.kind === 'smg' ? 'S' : pk.kind === 'shotgun' ? 'G' : '$', 0, 4);
   ctx.restore();
 }
 
@@ -255,15 +253,17 @@ function drawMarker(ctx, x, y, color, label) {
 
 function drawMissionMarker(ctx, game) {
   const ms = game.missions;
-  let target = null;
-  if (ms.taxi) {
-    const t = ms.taxi;
-    target = t.hasPassenger ? t.dropoff : t.pickup;
-    drawMarker(ctx, target.x, target.y, '#e8c832', 'TAXI');
+  // An active story mission outranks a taxi fare everywhere (banner, world
+  // marker, edge arrow): the taxi marker only shows when no mission runs.
+  if (ms.stage === 'active' && ms.target) {
+    drawMarker(ctx, ms.target.x, ms.target.y, '#ff4ad8', '★');
     return;
   }
-  if (ms.stage !== 'active' || !ms.target) return;
-  drawMarker(ctx, ms.target.x, ms.target.y, '#ff4ad8', '★');
+  if (ms.taxi) {
+    const t = ms.taxi;
+    const dest = t.hasPassenger ? t.dropoff : t.pickup;
+    drawMarker(ctx, dest.x, dest.y, t.hasPassenger ? '#e8c832' : '#4ad8d0', 'TAXI');
+  }
 }
 
 function drawPerson(ctx, p, shirt, skin, armed, label) {
@@ -478,10 +478,13 @@ export function drawHUD(ctx, game, view) {
     ctx.fillText(game.missions.message, w / 2, 122);
   }
   // Off-screen mission target: edge arrow + distance so the player can
-  // always find the objective without opening the map.
-  const target = game.missions.taxi
-    ? (game.missions.taxi.hasPassenger ? game.missions.taxi.dropoff : game.missions.taxi.pickup)
-    : (game.missions.stage === 'active' ? game.missions.target : null);
+  // always find the objective without opening the map. Same priority as the
+  // banner and world marker: active mission first, taxi second.
+  const target = (game.missions.stage === 'active' && game.missions.target)
+    ? game.missions.target
+    : (game.missions.taxi
+      ? (game.missions.taxi.hasPassenger ? game.missions.taxi.dropoff : game.missions.taxi.pickup)
+      : null);
   if (target) {
     const sx = target.x - game.camera.x, sy = target.y - game.camera.y;
     if (sx < 0 || sy < 0 || sx > w || sy > h) {
@@ -588,7 +591,7 @@ export function drawTitle(ctx, game, view) {
   const story = [
     'Leo Marín came back to Solmarina with $50 and a borrowed jacket.',
     'Drive fares, steal cars, dodge the PD — and pull the heist of the decade.',
-    'Five missions. One city. No rules but yours.',
+    'Six missions. One city. No rules but yours.',
   ];
   story.forEach((line, i) => ctx.fillText(line, w / 2, h / 2 - 58 + i * 22));
   ctx.fillStyle = '#fff';
@@ -625,7 +628,7 @@ export function drawPause(ctx, game, view) {
   ctx.fillText('PAUSED', w / 2, h / 2 - 60);
   ctx.font = '16px sans-serif';
   const p = game.player;
-  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/5  •  Fares ${p.stats.faresDone}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
+  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/6  •  Fares ${p.stats.faresDone}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
   ctx.fillText('P resume  •  R restart  •  M mute  •  Click to resume', w / 2, h / 2 + 16);
   ctx.restore();
 }
@@ -643,7 +646,7 @@ export function drawEndScreen(ctx, game, view, kind, lost) {
   ctx.font = '16px sans-serif';
   ctx.fillText(`The Solmarina PD took ${fmtMoney(lost)} off you. You wake up at the ${kind === 'busted' ? 'hospital' : 'safehouse'}.`, w / 2, h / 2 - 30);
   const p = game.player;
-  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/5  •  Fares ${p.stats.faresDone}  •  Cars stolen ${p.stats.carsStolen}`, w / 2, h / 2 + 2);
+  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/6  •  Fares ${p.stats.faresDone}  •  Cars stolen ${p.stats.carsStolen}`, w / 2, h / 2 + 2);
   ctx.fillStyle = '#ffd94a';
   ctx.font = 'bold 20px sans-serif';
   ctx.fillText('CLICK OR PRESS R TO GET BACK OUT THERE', w / 2, h / 2 + 46);

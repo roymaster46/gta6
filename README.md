@@ -34,11 +34,15 @@ follows you on foot and in a car.
   when you stay clean; Pay-n-Spray clears your wanted level for cash.
 - **Busted / Wasted** — arrested or killed, you lose some money and wake up at
   the hospital / safehouse.
-- **Missions (5-story chain)** — 1) First Fare, 2) Hot Wheels, 3) Beach Shootout,
-  4) The Getaway, 5) Solmarina Heist — each with an objective banner and a
-  pulsing minimap marker. Plus repeatable taxi fares for cash.
+- **Missions (6-story chain)** — 1) First Fare, 2) Hot Wheels, 3) Beach Shootout,
+  4) The Getaway, 5) Solmarina Heist, 6) The Last Delivery (a timed 100-second
+  run: grab the package at the port under 4-star heat and deliver it to the
+  buyer's yacht at the marina — run out of time and the job fails, but you can
+  retry it) — each with an objective banner and a pulsing minimap marker. While
+  a mission is active it outranks taxi fares everywhere (banner, world marker,
+  off-screen arrow). Plus repeatable taxi fares for cash.
 - **Money, health, armor** — earn from missions and fares; pick up health,
-  armor, an SMG and found cash around the city.
+  armor, an SMG, a shotgun and found cash around the city.
 - **HUD & minimap** — health/armor bars, money, wanted stars, objective text,
   speedometer, and a live minimap (player, cops, mission marker, roads).
 - **Menus & save** — title screen with story intro, pause, busted/wasted screen
@@ -54,7 +58,8 @@ follows you on foot and in a car.
 | Shift | Sprint |
 | Mouse + Click | Aim / shoot |
 | E | Enter / exit nearest car |
-| F | Start next mission (or Pay-n-Spray near the garage) |
+| F | Start next mission (near the garage while wanted: Pay-n-Spray instead) |
+| H | Horn (while driving) |
 | 1 / 2 / 3 | Pistol / SMG / Shotgun |
 | Space | Handbrake |
 | P / Esc | Pause |

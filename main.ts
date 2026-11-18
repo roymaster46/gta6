@@ -2,7 +2,7 @@
 // Copies game/ and screenshots/ from this repository into the output
 // directory and writes dossier.json with buildDossier from the kit's
 // vendor/makefun-game.ts. Standard library only; runs on Node 22.
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -18,6 +18,14 @@ if (!existsSync(gameDir)) {
 }
 if (!existsSync(shotsDir)) {
   throw new Error('main.ts: screenshots/ is missing from the repository');
+}
+// Every screenshot named in shots.json must exist on disk: a stale entry
+// would otherwise ship a dossier pointing at a file that is not there.
+const shotList = JSON.parse(readFileSync(join(repoRoot, 'shots.json'), 'utf8'));
+for (const s of shotList) {
+  if (!existsSync(join(shotsDir, s.name))) {
+    throw new Error(`main.ts: screenshot ${s.name} listed in shots.json is missing from screenshots/`);
+  }
 }
 
 mkdirSync(outDir, { recursive: true });

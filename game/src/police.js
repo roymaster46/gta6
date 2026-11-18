@@ -3,7 +3,7 @@
 // Police spawn at the edge of the camera view and chase; foot cops try to
 // arrest a player on foot, police cars ram the player's car.
 import { clamp, dist, angleTo, turnToward, rand, pick } from './utils.js';
-import { WORLD, randomFreePoint } from './city.js';
+import { WORLD, randomFreePoint, collideBuildings } from './city.js';
 import { makeCar, CAR_MODELS } from './vehicles.js';
 
 export function createWanted() {
@@ -122,6 +122,13 @@ export function updatePolice(game, dt, time) {
       car.speed = lerpSpeed(car.speed, targetSpeed, dt);
       car.x += Math.cos(car.angle) * car.speed * dt;
       car.y += Math.sin(car.angle) * car.speed * dt;
+      // Police cars obey the city too: they used to ghost straight through
+      // buildings while chasing. A hard hit slows them down, like traffic.
+      const cpos = { x: car.x, y: car.y };
+      if (collideBuildings(city, cpos, 20)) {
+        car.x = cpos.x; car.y = cpos.y;
+        car.speed *= 0.4;
+      }
       cop.x = car.x; cop.y = car.y; cop.angle = car.angle;
       // Siren wail timer for audio blips.
       cop.sirenPhase += dt;
@@ -136,6 +143,9 @@ export function updatePolice(game, dt, time) {
     cop.speed = 165;
     cop.x += Math.cos(cop.angle) * cop.speed * dt;
     cop.y += Math.sin(cop.angle) * cop.speed * dt;
+    // Foot cops walk around buildings instead of through them.
+    const fpos = { x: cop.x, y: cop.y };
+    if (collideBuildings(city, fpos, 12)) { cop.x = fpos.x; cop.y = fpos.y; }
     if (!player.inCar && d < 34) {
       cop.arrestTimer += dt;
       if (cop.arrestTimer > 1.1) {

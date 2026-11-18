@@ -90,6 +90,9 @@ export function createAudio() {
     missionDone() {
       [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.18, 'triangle', 0.3), i * 110));
     },
+    missionFail() {
+      [392, 330, 262, 196].forEach((f, i) => setTimeout(() => blip(f, 0.22, 'sawtooth', 0.25), i * 130));
+    },
     missionStart() { blip(392, 0.15, 'triangle', 0.3); setTimeout(() => blip(523, 0.2, 'triangle', 0.3), 130); },
     sirenBlip() { blip(700, 0.25, 'sine', 0.12, 950); },
     door() { noiseHit(0.08, 0.25, 900, 'bandpass'); },

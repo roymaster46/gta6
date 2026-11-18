@@ -19,6 +19,9 @@ export const LANDMARKS = {
   park: { x: 1200, y: 1470, label: 'Palm Park' },
   bridge: { x: 1200, y: 150, label: 'Marina Bridge' },
   marina: { x: 1200, y: 90, label: 'Marina' },
+  // The buyer's yacht, moored just north of the marina — the drop point for
+  // the final mission. Reachable on foot and by car along the north edge.
+  yacht: { x: 1200, y: 60, label: 'Yacht' },
 };
 
 const BUILDING_COLORS = [

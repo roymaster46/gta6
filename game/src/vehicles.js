@@ -91,7 +91,8 @@ export function updateTrafficCar(car, city, cars, dt, time) {
   if (blocked) {
     car.speed = lerp(car.speed, 0, Math.min(1, dt * 5));
     car.honkTimer -= dt;
-    if (car.honkTimer <= 0) { car.honkTimer = rand(5, 12); car.honked = time; }
+    // Flag the honk for the main loop, which plays it (traffic has no audio).
+    if (car.honkTimer <= 0) { car.honkTimer = rand(5, 12); car.honked = true; }
   } else {
     const desired = angleTo(car.x, car.y, target.x, target.y);
     car.angle = turnToward(car.angle, desired, dt * 2.4);

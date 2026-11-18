@@ -1,8 +1,9 @@
-// missions.js — Solmarina story chain (5 missions) + repeatable taxi fares.
+// missions.js — Solmarina story chain (6 missions) + repeatable taxi fares.
 // Each mission has an id, title, briefing, objective text, a target point and
 // a stage machine driven by updateMissions(game, dt). Completing one pays
-// cash, advances the chain and saves progress.
-import { dist, clamp, rand, pick } from './utils.js';
+// cash, advances the chain and saves progress. Mission 6 is timed: fail the
+// clock and the job is lost, but the chain lets you retry it.
+import { dist, clamp, rand, pick, fmtCountdown } from './utils.js';
 import { LANDMARKS, randomRoadPoint, randomFreePoint } from './city.js';
 import { makeCar, CAR_MODELS } from './vehicles.js';
 import { makePed } from './peds.js';
@@ -34,16 +35,22 @@ export const MISSION_DEFS = [
     brief: 'The big one. Hit Solmarina Bank, grab the cash, and run a 5-star escape to the getaway boat at the port.',
     objective: 'Rob the bank, then escape to the getaway boat',
   },
+  {
+    id: 6, title: 'The Last Delivery', pay: 2500,
+    brief: 'Rico’s final job: a package at the port, a buyer waiting on the yacht at the marina — and the whole PD already tipped off. Grab a fast car. You have 100 seconds.',
+    objective: 'Grab the package at the port, deliver it to the yacht',
+  },
 ];
 
 export function createMissionState() {
   return {
-    current: 0,          // index into MISSION_DEFS (0-based); 5 = all done
+    current: 0,          // index into MISSION_DEFS (0-based); 6 = all done
     stage: 'idle',       // idle | active | done
     target: null,        // {x, y, label}
     progress: 0,
     needed: 0,
     timer: 0,
+    timeLimit: 0,        // seconds; 0 = no limit (missions 1-5)
     message: '',
     messageTimer: 0,
     taxi: null,          // active taxi fare {pickup, dropoff, fare, passenger}
@@ -56,22 +63,36 @@ export function createMissionState() {
 export function currentMissionDef(ms) {
   return MISSION_DEFS[ms.current] || null;
 }
+
+// Seconds left on a timed mission (0 when the active mission has no clock).
+export function missionTimeLeft(ms) {
+  if (ms.stage !== 'active' || !ms.timeLimit) return 0;
+  return Math.max(0, ms.timeLimit - ms.timer);
+}
+
 export function missionObjectiveText(game) {
   const ms = game.missions;
+  const def = currentMissionDef(ms);
+  // An active story mission always outranks a taxi fare: the banner, the
+  // world marker and the edge arrow all follow the mission while it runs.
+  if (def && ms.stage === 'active') {
+    if (def.id === 1 && ms.progress === 1) return 'Drive the client to Solmarina Hospital';
+    if (def.id === 3) return `Eliminate the Vipers on Playa Sol (${ms.progress}/${ms.needed})`;
+    if (def.id === 4 && ms.packageCarried) return 'Escape the police — reach the safehouse';
+    if (def.id === 5 && ms.progress === 1) return 'Escape the 5-star chase — reach the getaway boat';
+    if (def.id === 6) {
+      if (!ms.packageCarried) return `Grab the package at the port — ${fmtCountdown(missionTimeLeft(ms))} left`;
+      return `Deliver to the yacht — ${fmtCountdown(missionTimeLeft(ms))} left`;
+    }
+    return def.objective;
+  }
   if (ms.taxi && !ms.taxi.done) {
     return ms.taxi.hasPassenger
       ? `Taxi: drop the passenger at the marker (${'$' + ms.taxi.fare})`
       : 'Taxi: pick up the passenger at the marker';
   }
-  const def = currentMissionDef(ms);
   if (!def) return 'All missions complete — free roam! Take taxi fares for cash.';
   if (ms.stage === 'idle') return `Next mission: ${def.title} — press F to start`;
-  if (def.id === 1 && ms.progress === 1) return 'Drive the client to Solmarina Hospital';
-  if (def.id === 4 && ms.packageCarried) return 'Escape the police — reach the safehouse';
-  if (def.id === 5 && ms.progress === 1) return 'Escape the 5-star chase — reach the getaway boat';
-  if (ms.id === 3 || (ms.current === 2 && ms.stage === 'active')) {
-    return `Eliminate the Vipers on Playa Sol (${ms.progress}/${ms.needed})`;
-  }
   return def.objective;
 }
 
@@ -82,6 +103,7 @@ export function startMission(game) {
   ms.stage = 'active';
   ms.progress = 0;
   ms.timer = 0;
+  ms.timeLimit = 0;
   ms.packageCarried = false;
   const L = LANDMARKS;
   if (def.id === 1) {
@@ -112,6 +134,12 @@ export function startMission(game) {
     ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the package' };
   } else if (def.id === 5) {
     ms.target = { x: L.bank.x, y: L.bank.y, label: 'Rob the bank' };
+  } else if (def.id === 6) {
+    // The PD is already tipped off: 4 stars the moment the job starts.
+    ms.timeLimit = 100;
+    addCrime(game.wanted, 85, game.time);
+    game.events.push({ type: 'siren' });
+    ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the package' };
   }
   game.events.push({ type: 'missionStart' });
   setMessage(game, def.title + ' — ' + def.brief, 6);
@@ -136,7 +164,25 @@ export function completeMission(game) {
   ms.target = null;
   ms.targetCar = null;
   ms.packageCarried = false;
+  ms.timeLimit = 0;
   game.gang.length = 0;
+  game.save();
+}
+
+// A timed mission ran out of clock (or otherwise failed): the job is lost
+// but the chain stays put, so the player can retry it.
+export function failMission(game, reason) {
+  const ms = game.missions;
+  const def = currentMissionDef(ms);
+  if (!def || ms.stage !== 'active') return;
+  ms.stage = 'idle';
+  ms.target = null;
+  ms.targetCar = null;
+  ms.packageCarried = false;
+  ms.timeLimit = 0;
+  game.gang.length = 0;
+  game.events.push({ type: 'missionFail' });
+  setMessage(game, `Mission failed: ${def.title} — ${reason}`, 5);
   game.save();
 }
 
@@ -240,6 +286,21 @@ export function updateMissions(game, dt, time) {
     } else if (dist(px, py, L.boat.x, L.boat.y) < 80) {
       completeMission(game);
     }
+  } else if (def.id === 6) {
+    if (!ms.packageCarried) {
+      if (dist(px, py, L.port.x, L.port.y) < 70) {
+        ms.packageCarried = true;
+        ms.target = { x: L.yacht.x, y: L.yacht.y, label: 'Deliver to the yacht' };
+        setMessage(game, 'Package secured — deliver it to the yacht at the marina!', 5);
+      }
+    } else if (dist(px, py, L.yacht.x, L.yacht.y) < 90) {
+      completeMission(game);
+    }
+  }
+  // Timed missions: the clock runs out only while the job is still active
+  // (completeMission above already set stage back to idle on success).
+  if (ms.stage === 'active' && ms.timeLimit > 0 && ms.timer > ms.timeLimit) {
+    failMission(game, 'the buyer walked away — delivery too slow');
   }
 }
 

@@ -119,7 +119,9 @@ export function makePickup(x, y, kind) {
   return { x, y, kind, bob: rand(0, Math.PI * 2), life: 60 };
 }
 export function spawnPickups(city, rng, count = 10) {
-  const kinds = ['health', 'armor', 'smg', 'health', 'armor', 'cash'];
+  // Rotation covers every pickup kind, so the shotgun (weapon 3) is actually
+  // obtainable in the world — before this change no shotgun ever spawned.
+  const kinds = ['health', 'armor', 'smg', 'shotgun', 'health', 'armor', 'cash'];
   const out = [];
   for (let i = 0; i < count; i++) {
     const p = randomFreePoint(city, rng);
@@ -147,6 +149,7 @@ export function applyPickup(game, pk) {
   if (pk.kind === 'health') { p.health = clamp(p.health + 40, 0, 100); game.events.push({ type: 'toast', text: '+40 Health' }); }
   if (pk.kind === 'armor') { p.armor = clamp(p.armor + 50, 0, 100); game.events.push({ type: 'toast', text: '+50 Armor' }); }
   if (pk.kind === 'smg') { p.weapons.smg = true; p.weapon = 'smg'; p.ammo.smg = (p.ammo.smg || 0) + 60; game.events.push({ type: 'toast', text: 'SMG picked up!' }); }
+  if (pk.kind === 'shotgun') { p.weapons.shotgun = true; p.weapon = 'shotgun'; p.ammo.shotgun = (p.ammo.shotgun || 0) + 12; game.events.push({ type: 'toast', text: 'Shotgun picked up!' }); }
   if (pk.kind === 'cash') { p.money += 25; game.events.push({ type: 'toast', text: '+$25 found cash' }); }
   game.events.push({ type: 'pickup' });
 }

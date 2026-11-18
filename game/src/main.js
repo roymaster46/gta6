@@ -122,7 +122,11 @@ function updateCamera(dt) {
 
 function handleEvents(dt) {
   for (const ev of game.events) {
-    if (ev.type === 'shoot') audio.shoot();
+    if (ev.type === 'shoot') {
+      audio.shoot();
+      // Gunfire in public scares nearby pedestrians away from Leo.
+      scarePeds(game.peds, game.player.x, game.player.y, 240);
+    }
     else if (ev.type === 'enemyShot') audio.smgShoot();
     else if (ev.type === 'pickup') audio.pickup();
     else if (ev.type === 'cash') audio.cash();
@@ -130,6 +134,7 @@ function handleEvents(dt) {
     else if (ev.type === 'crash') audio.crash();
     else if (ev.type === 'explosion') { addParticles(ev.x, ev.y, '#ff8a2a', 26, 260); addParticles(ev.x, ev.y, '#555', 16, 120); }
     else if (ev.type === 'missionDone') { audio.missionDone(); game.save(); }
+    else if (ev.type === 'missionFail') { audio.missionFail(); game.save(); }
     else if (ev.type === 'missionStart') audio.missionStart();
     else if (ev.type === 'siren') audio.sirenBlip();
     else if (ev.type === 'door') audio.door();
@@ -178,17 +183,21 @@ function update(dt) {
   if (game.state === 'playing') {
     // Enter / exit car.
     if (input.wasPressed('enter')) tryEnterCar(game, game.time);
-    // Start mission.
+    // Honk (in a car only).
+    if (input.wasPressed('horn') && p.inCar) game.audio.horn();
+    // F does ONE thing per press: near the garage while wanted it pays for
+    // Pay-n-Spray; otherwise it starts the next mission. Before this fix a
+    // single F press near the garage did both at once — starting a mission
+    // and charging the spray fee in the same frame.
     if (input.wasPressed('interact')) {
-      if (game.missions.stage === 'idle') startMission(game);
-    }
-    // Weapon switch 1/2/3.
-    if (input.wasPressed('confirm')) { /* Enter reserved */ }
-    // Pay-n-spray: press F near the garage while wanted.
-    const nearGarage = dist(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y) < 110;
-    if (nearGarage && game.wanted.stars > 0 && input.wasPressed('interact')) {
-      const fee = payNSpray(game);
-      if (fee > 0) game.events.push({ type: 'toast', text: `Pay-n-Spray: wanted cleared for $${fee}` });
+      const nearGarage = dist(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y) < 110;
+      if (nearGarage && game.wanted.stars > 0) {
+        const fee = payNSpray(game);
+        if (fee > 0) game.events.push({ type: 'toast', text: `Pay-n-Spray: wanted cleared for $${fee}` });
+        else game.events.push({ type: 'toast', text: 'Pay-n-Spray: not enough cash!' });
+      } else if (game.missions.stage === 'idle') {
+        startMission(game);
+      }
     }
 
     if (p.inCar) updatePlayerDriving(game, dt, game.time);
@@ -197,6 +206,10 @@ function update(dt) {
     // Traffic + parked cars.
     for (const car of game.cars) {
       if (car.kind === 'traffic') updateTrafficCar(car, game.city, game.cars, dt, game.time);
+    }
+    // Traffic honks flagged by the AI: play them here (traffic has no audio).
+    for (const car of game.cars) {
+      if (car.honked) { car.honked = false; game.audio.horn(); }
     }
     // Car-car collisions.
     for (let i = 0; i < game.cars.length; i++) {
@@ -219,6 +232,10 @@ function update(dt) {
         scarePeds(game.peds, p.x, p.y, 320);
         game.events.push({ type: 'crash' });
       }
+    }
+    // Speeding through a crowd scares pedestrians even without a hit.
+    if (p.inCar && p.car && Math.abs(p.car.speed) > 120) {
+      scarePeds(game.peds, p.x, p.y, 220);
     }
     updatePeds(game.peds, game.city, dt, game.time);
     updateBullets(game, dt);

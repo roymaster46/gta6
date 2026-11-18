@@ -29,7 +29,10 @@ export function createPlayer() {
 
 export function damagePlayer(game, amount, source) {
   const p = game.player;
-  if (p.hurtTimer > 0 && source === 'bullet') return;
+  // Brief invulnerability after any hit: without it, a multi-car pileup
+  // drains the player in a single frame (one damage call per colliding
+  // pair), and a crash landing on the same tick as a bullet double-counts.
+  if (p.hurtTimer > 0) return;
   let remaining = amount;
   if (p.armor > 0) {
     const absorbed = Math.min(p.armor, remaining * 0.6);

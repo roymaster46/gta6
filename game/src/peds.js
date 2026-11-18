@@ -42,6 +42,9 @@ export function scarePeds(peds, fx, fy, radius = 320) {
     if (dist(p.x, p.y, fx, fy) < radius) {
       p.state = 'flee';
       p.fleeTimer = 2.5 + Math.random() * 2;
+      // Remember where the danger came from so the flee target is chosen
+      // away from it, not at a random point that may be back toward it.
+      p.fleeFrom = { x: fx, y: fy };
       p.target = null;
       count++;
     }
@@ -56,8 +59,14 @@ export function updatePeds(peds, city, dt, time) {
     if (p.state === 'flee') {
       p.fleeTimer -= dt;
       if (!p.target) {
-        // Run to a random free point away from the scare source.
-        p.target = randomFreePoint(city, Math.random);
+        // Run away from the scare source: pick a point in the away
+        // direction (with some spread) instead of anywhere at random.
+        const away = p.fleeFrom ? angleTo(p.fleeFrom.x, p.fleeFrom.y, p.x, p.y) : rand(0, Math.PI * 2);
+        const a = away + rand(-0.7, 0.7);
+        const d = rand(180, 420);
+        const tx = clamp(p.x + Math.cos(a) * d, 40, WORLD - 40);
+        const ty = clamp(p.y + Math.sin(a) * d, 40, WORLD - 140);
+        p.target = pointInBuilding(city, tx, ty) ? randomFreePoint(city, Math.random) : { x: tx, y: ty };
       }
       const a = angleTo(p.x, p.y, p.target.x, p.target.y);
       p.angle = turnToward(p.angle, a, dt * 6);

@@ -80,6 +80,10 @@ export function fmtTime(sec) {
   const s = Math.floor(sec % 60);
   return m + ':' + String(s).padStart(2, '0');
 }
+// Short countdown for timed objectives: "87s" (never negative).
+export function fmtCountdown(sec) {
+  return Math.max(0, Math.ceil(sec)) + 's';
+}
 export function shade(hex, amt) {
   // Lighten (amt>0) or darken (amt<0) a #rrggbb colour by amt (-100..100).
   const n = parseInt(hex.slice(1), 16);
