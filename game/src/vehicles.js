@@ -1,8 +1,14 @@
-// vehicles.js — car physics, traffic AI and parked cars for Solmarina.
-// A car is a plain object: {x,y,angle,speed,color,model,driver,kind,...}.
-// Physics is simple arcade: accel, steering scaled by speed, handbrake drift.
+// vehicles.js — car models, driving physics, traffic AI and parked cars.
+// A car is a plain object: {x, y, angle, speed, color, model, driver, kind,
+// health, damage, waypoint, ...} plus garage upgrades (engine / armour /
+// nitro) fitted at the Pay-n-Spray shop. Physics is simple arcade: accel,
+// steering scaled by speed, handbrake drift, crash damage. Traffic follows
+// road waypoints in a lane, brakes for jams and honks at them; at night the
+// whole flow slows a touch (see daynight.trafficFactor).
 import { clamp, lerp, angleTo, turnToward, dist, rand, pick, mulberry32 } from './utils.js';
 import { WORLD, nearestRoadPoint, nextWaypoint, randomRoadPoint, randomParkedSpot, collideBuildings } from './city.js';
+import { topSpeedOf, maxHealthOf, nitroActive } from './garage.js';
+import { trafficFactor } from './daynight.js';
 
 export const CAR_COLORS = ['#d84a4a', '#3a6fd8', '#e8c832', '#3ab86a', '#e8e8e8', '#2a2a2e', '#d86a2a', '#8a4ad8', '#4ad8d0', '#c0c8d0'];
 export const CAR_MODELS = [
@@ -37,16 +43,40 @@ export function makeCar(x, y, angle, opts = {}) {
     siren: opts.kind === 'police',
     wanted: false,
     label: opts.label || null,
+    // Garage upgrades, fitted at the Pay-n-Spray shop (garage.js).
+    upgrades: { engine: 0, armor: 0, nitro: false },
+    boostUntil: 0,          // game-time when the current nitro boost ends
+    boostCooldownUntil: 0,  // game-time when the next boost is allowed
   };
 }
 
-// Arcade car physics for the player-driven car.
-export function driveCar(car, input, dt) {
+// Current health of a car: max health (raised by armour plating) minus damage.
+export function carHealth(car) {
+  return Math.max(0, maxHealthOf(car) - car.damage);
+}
+export function carWrecked(car) {
+  return carHealth(car) <= 0;
+}
+export function damageCar(car, amount, game) {
+  car.damage += amount;
+  car.health = carHealth(car);
+  if (carWrecked(car)) {
+    game.events.push({ type: 'explosion', x: car.x, y: car.y });
+    if (car.kind === 'player') game.events.push({ type: 'carWrecked' });
+  }
+}
+
+// Arcade car physics for the player-driven car. `time` is game time in
+// seconds; it only matters for nitro (boost window on the car).
+export function driveCar(car, input, dt, time = 0) {
+  const boosting = nitroActive(car, time);
   const fwd = input.up ? 1 : input.down ? -0.6 : 0;
   const steer = (input.left ? -1 : 0) + (input.right ? 1 : 0);
-  const top = car.model.top * (car.health < 40 ? 0.6 : 1);
+  // A battered car loses top speed; engine tunes and nitro raise it.
+  const top = topSpeedOf(car) * (car.health < 40 ? 0.6 : 1) * (boosting ? 1.6 : 1);
+  const accel = car.model.accel * (boosting ? 2 : 1);
   if (fwd !== 0) {
-    car.speed += fwd * car.model.accel * dt * (input.up ? 1 : 0.7);
+    car.speed += fwd * accel * dt * (input.up ? 1 : 0.7);
   } else {
     car.speed = lerp(car.speed, 0, Math.min(1, dt * 1.2));
   }
@@ -69,6 +99,8 @@ export function driveCar(car, input, dt) {
 }
 
 // Traffic AI: follow road waypoints in a lane, stop for jams, honk sometimes.
+// `time` here is the day/night clock (0..360): traffic cruises slower after
+// dark. main.js passes game.clock, not game.time.
 export function updateTrafficCar(car, city, cars, dt, time) {
   if (!car.waypoint) {
     const wp = nextWaypoint(city, car.x, car.y, car.dir);
@@ -96,7 +128,7 @@ export function updateTrafficCar(car, city, cars, dt, time) {
   } else {
     const desired = angleTo(car.x, car.y, target.x, target.y);
     car.angle = turnToward(car.angle, desired, dt * 2.4);
-    car.speed = lerp(car.speed, car.cruise, Math.min(1, dt * 0.8));
+    car.speed = lerp(car.speed, car.cruise * trafficFactor(time), Math.min(1, dt * 0.8));
   }
   car.x += Math.cos(car.angle) * car.speed * dt;
   car.y += Math.sin(car.angle) * car.speed * dt;
@@ -122,9 +154,10 @@ export function collideCars(a, b) {
   const impact = rel + Math.abs(a.speed) * 0.3;
   a.speed *= 0.55; b.speed *= 0.55;
   if (impact > 60) {
-    a.damage += impact * 0.08; b.damage += impact * 0.08;
-    a.health = Math.max(0, 100 - a.damage);
-    b.health = Math.max(0, 100 - b.damage);
+    // Damage is measured against each car's own max health, so an armoured
+    // car survives hits that would total a stock one.
+    a.damage += impact * 0.08; a.health = carHealth(a);
+    b.damage += impact * 0.08; b.health = carHealth(b);
   }
   return impact;
 }

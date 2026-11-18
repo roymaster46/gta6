@@ -1,5 +1,8 @@
 // audio.js — fully synthesized WebAudio sound for Solmarina.
 // No audio files: every effect is an oscillator / noise buffer built in code.
+// New in this revision: a nitro whoosh, a shop-purchase chime, a helicopter
+// rotor chop, and a night mode for the music — after dark the sunny
+// Am–F–C–G groove swaps to a moodier Am–Dm–Em–Am progression.
 export function createAudio() {
   let ctx = null;
   let master = null;
@@ -8,6 +11,18 @@ export function createAudio() {
   let engineNodes = null;
   let musicTimer = null;
   let musicStep = 0;
+  // Two chord sets for the music loop; setNightMode swaps the active one.
+  let nightMode = false;
+  const DAY_CHORDS = [
+    [220.0, 261.63, 329.63], [174.61, 220.0, 261.63],
+    [261.63, 329.63, 392.0], [196.0, 246.94, 293.66],
+  ];
+  const DAY_BASS = [110.0, 87.31, 130.81, 98.0];
+  const NIGHT_CHORDS = [
+    [220.0, 261.63, 329.63], [146.83, 174.61, 220.0],
+    [164.81, 196.0, 246.94], [220.0, 261.63, 329.63],
+  ];
+  const NIGHT_BASS = [110.0, 73.42, 82.41, 110.0];
 
   function ensure() {
     if (ctx) {
@@ -69,10 +84,16 @@ export function createAudio() {
   const api = {
     unlock() { ensure(); },
     get muted() { return muted; },
+    get night() { return nightMode; },
     toggleMute() {
       muted = !muted;
       if (master) master.gain.value = muted ? 0 : 0.5;
       return muted;
+    },
+    // Swap the music groove between day and night. The loop reads the
+    // active chord set on every step, so the change takes effect mid-bar.
+    setNightMode(on) {
+      nightMode = !!on;
     },
     shoot() {
       noiseHit(0.12, 0.5, 1800, 'highpass');
@@ -99,6 +120,23 @@ export function createAudio() {
     crash() { noiseHit(0.25, 0.5, 500, 'lowpass'); blip(120, 0.15, 'square', 0.2, 50); },
     horn() { blip(370, 0.25, 'square', 0.12); blip(466, 0.25, 'square', 0.1); },
     click() { blip(800, 0.05, 'square', 0.15); },
+    // Nitro boost: a rising filtered whoosh.
+    nitro() {
+      noiseHit(0.5, 0.45, 3000, 'bandpass');
+      blip(180, 0.45, 'sawtooth', 0.18, 900);
+    },
+    // Garage purchase: cash-register chime.
+    shopBuy() {
+      blip(880, 0.08, 'triangle', 0.3);
+      setTimeout(() => blip(1174, 0.1, 'triangle', 0.3), 70);
+      setTimeout(() => blip(1568, 0.16, 'triangle', 0.3), 140);
+    },
+    // One rotor chop (two low thumps). main.js calls this on a timer while
+    // the police helicopter is overhead.
+    heli() {
+      blip(65, 0.09, 'square', 0.22, 45);
+      setTimeout(() => blip(65, 0.09, 'square', 0.18, 45), 110);
+    },
 
     // Continuous engine hum; call with speed 0..1, or null to stop.
     engine(speed) {
@@ -129,15 +167,13 @@ export function createAudio() {
 
     startMusic() {
       if (!ensure() || musicTimer) return;
-      // Sunny coastal groove: Am – F – C – G arpeggio, 8th notes at 112 BPM.
-      const chords = [
-        [220.0, 261.63, 329.63], [174.61, 220.0, 261.63],
-        [261.63, 329.63, 392.0], [196.0, 246.94, 293.66],
-      ];
-      const bass = [110.0, 87.31, 130.81, 98.0];
+      // Sunny coastal groove by day (Am – F – C – G), moodier minor
+      // progression by night (Am – Dm – Em – Am). 8th notes at 112 BPM.
       const stepDur = 60 / 112 / 2;
       musicTimer = setInterval(() => {
         if (muted) return;
+        const chords = nightMode ? NIGHT_CHORDS : DAY_CHORDS;
+        const bass = nightMode ? NIGHT_BASS : DAY_BASS;
         const chord = chords[Math.floor(musicStep / 4) % 4];
         const note = chord[musicStep % 3];
         const t = ctx.currentTime;

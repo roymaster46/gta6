@@ -29,6 +29,8 @@ html, body {
   white-space: nowrap;
   z-index: 10;
 }
+/* The upgrade shop is drawn on the canvas (render.js drawShop), so it needs
+   no DOM of its own — the hint bar is the only overlay element. */
 /* On narrow screens the one-line hint would overflow: let it wrap. */
 @media (max-width: 700px) {
   #hint {

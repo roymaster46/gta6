@@ -2,6 +2,7 @@
 // locally without a build step: `node serve.ts` serves game/ on http://localhost:8080.
 // It sends the MIME types a browser game needs, refuses any path outside game/, and otherwise
 // does nothing clever: this is a development convenience, not a web server for the internet.
+// Port precedence: --port flag, then the PORT environment variable, then 8080.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -9,10 +10,13 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 const args = process.argv.slice(2);
-const portIndex = args.indexOf('--port');
-// Port precedence: --port flag, then the PORT environment variable, then 8080.
-const requested = portIndex === -1 ? (Number(process.env.PORT) || 8080) : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+
+function pickPort(): number {
+  const flagIndex = args.indexOf('--port');
+  const raw = flagIndex === -1 ? process.env.PORT : args[flagIndex + 1];
+  const n = Number(raw ?? 8080);
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : 8080;
+}
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -38,6 +42,13 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+function resolveSafe(pathname: string): string | null {
+  const file = resolve(join(root, normalize(pathname)));
+  if (file !== root && !file.startsWith(root + sep)) return null;
+  return file;
+}
+
+const port = pickPort();
 createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
   let pathname: string;
@@ -48,8 +59,8 @@ createServer((request, response) => {
     return;
   }
   if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
+  const file = resolveSafe(pathname);
+  if (file === null) {
     response.writeHead(403).end('forbidden');
     return;
   }

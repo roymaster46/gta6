@@ -2,7 +2,11 @@
 // Copies game/ and screenshots/ from this repository into the output
 // directory and writes dossier.json with buildDossier from the kit's
 // vendor/makefun-game.ts. Standard library only; runs on Node 22.
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+// The build is checked before it is written: the game folder must exist,
+// every screenshot named in shots.json must exist (at most 4, per the
+// dossier config), and the two modules added in this revision — the
+// day/night cycle and the garage shop — must be present.
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -19,9 +23,17 @@ if (!existsSync(gameDir)) {
 if (!existsSync(shotsDir)) {
   throw new Error('main.ts: screenshots/ is missing from the repository');
 }
+for (const mod of ['daynight.js', 'garage.js']) {
+  if (!existsSync(join(gameDir, 'src', mod))) {
+    throw new Error(`main.ts: game/src/${mod} is missing — the day/night and garage modules are required`);
+  }
+}
 // Every screenshot named in shots.json must exist on disk: a stale entry
 // would otherwise ship a dossier pointing at a file that is not there.
 const shotList = JSON.parse(readFileSync(join(repoRoot, 'shots.json'), 'utf8'));
+if (!Array.isArray(shotList) || shotList.length === 0 || shotList.length > 4) {
+  throw new Error('main.ts: shots.json must list 1-4 screenshots');
+}
 for (const s of shotList) {
   if (!existsSync(join(shotsDir, s.name))) {
     throw new Error(`main.ts: screenshot ${s.name} listed in shots.json is missing from screenshots/`);
@@ -50,7 +62,6 @@ console.log(`Solmarina entry written to ${outDir} (dossier.json: ${dossier.lengt
 
 // Sanity-check what was handed in: the dossier must exist, and the output
 // must hold the game, the screenshots and nothing else at the top level.
-import { readdirSync, statSync } from 'node:fs';
 const topLevel = readdirSync(outDir);
 const gameFiles = readdirSync(join(outDir, 'game'));
 const shotFiles = readdirSync(join(outDir, 'screenshots'));

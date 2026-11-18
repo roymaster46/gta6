@@ -1,6 +1,9 @@
 // city.js — Solmarina map: roads, buildings, beach, park, port, bridge.
 // World is 2400x2400. Roads form a grid; blocks hold buildings, parks and
 // landmarks. All placement is deterministic from a seed so ?shot= scenes match.
+// New in this revision: billboards along the main roads, a plaza with benches
+// next to Palm Park, beach kiosks on Playa Sol, and a glow radius on every
+// street lamp so the renderer can light them up after dark.
 import { mulberry32, pick, resolveCircleRect } from './utils.js';
 
 export const WORLD = 2400;
@@ -29,6 +32,13 @@ const BUILDING_COLORS = [
   '#d8a0a0', '#b5c9a8', '#e0c090', '#9fb8c8', '#f0e0c0', '#c8b098',
 ];
 const ROOF_COLORS = ['#8a5a3b', '#6b4a3a', '#7a6a5a', '#5a6a7a', '#9a7a5a'];
+
+// Roadside billboards: fixed spots, fixed copy — part of the city's look.
+const BILLBOARDS = [
+  { x: 1050, y: 420, w: 120, h: 40, text: 'SOLMARINA', sub: 'sun • sea • speed', color: '#ff5a5a' },
+  { x: 1650, y: 1080, w: 120, h: 40, text: 'PAY-N-SPRAY', sub: 'lose the heat', color: '#3a6fd8' },
+  { x: 450, y: 1680, w: 120, h: 40, text: 'PLAYA SOL', sub: 'beach • all night', color: '#e8c832' },
+];
 
 export function buildCity(seed = 1) {
   const rng = mulberry32(seed);
@@ -84,8 +94,26 @@ export function buildCity(seed = 1) {
   ];
   for (const lb of landmarkBuildings) buildings.push(lb);
 
-  // Street lamps along roads.
-  for (const x of roadsV) for (const y of roadsH) lamps.push({ x: x + ROAD_W / 2 + 6, y: y - ROAD_W / 2 - 6 });
+  // Street lamps along roads. Each lamp carries a glow radius for the
+  // night renderer — the same lamp lights the same patch every night.
+  for (const x of roadsV) for (const y of roadsH) lamps.push({ x: x + ROAD_W / 2 + 6, y: y - ROAD_W / 2 - 6, glow: 34 });
+
+  // The plaza: a paved square with benches just north of Palm Park, where
+  // peds idle during the day.
+  const plaza = {
+    x: 1050, y: 1050, w: 300, h: 150,
+    benches: [
+      { x: 1120, y: 1100 }, { x: 1280, y: 1100 },
+      { x: 1120, y: 1160 }, { x: 1280, y: 1160 },
+    ],
+  };
+  // Beach kiosks on Playa Sol — little striped stalls that sell ice cream
+  // by day and stay shuttered at night.
+  const kiosks = [
+    { x: 500, y: 2190, w: 46, h: 34, color: '#ff5a5a' },
+    { x: 1000, y: 2190, w: 46, h: 34, color: '#3a6fd8' },
+    { x: 1700, y: 2190, w: 46, h: 34, color: '#e8c832' },
+  ];
 
   // Beach strip along the south edge (y 2160..2400): sand + ocean.
   const beach = { x: 0, y: 2160, w: WORLD, h: 130 };
@@ -96,7 +124,7 @@ export function buildCity(seed = 1) {
     { x: 2280, y: 1900, w: 120, h: 26 },
     { x: 2280, y: 2000, w: 120, h: 26 },
   ];
-  return { buildings, trees, lamps, roadsV, roadsH, beach, ocean, docks, seed };
+  return { buildings, trees, lamps, roadsV, roadsH, beach, ocean, docks, seed, billboards: BILLBOARDS, plaza, kiosks };
 }
 
 function rectsOverlapPad(a, b, pad) {

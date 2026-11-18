@@ -1,6 +1,10 @@
 // peds.js — pedestrians: walk the sidewalks, chat, flee gunfire and crashes.
+// The city breathes with the day/night cycle: after dark the streets thin
+// out, everyone walks a little slower, and a few night owls gather on the
+// beach to watch the ocean instead of strolling.
 import { clamp, dist, rand, pick, mulberry32, angleTo, turnToward } from './utils.js';
 import { WORLD, randomFreePoint, randomRoadPoint, onRoad, pointInBuilding } from './city.js';
+import { isNight } from './daynight.js';
 
 const PED_COLORS = ['#e8b4b8', '#8a6a4a', '#4a6a8a', '#c8a8d8', '#a8c8a8', '#d8d8a8', '#e8e8e8', '#6a4a6a'];
 const PED_SHIRTS = ['#d84a4a', '#3a6fd8', '#e8c832', '#3ab86a', '#8a4ad8', '#e8e8e8', '#d86a2a', '#4ad8d0'];
@@ -13,7 +17,7 @@ export function makePed(x, y, opts = {}) {
     angle: rand(0, Math.PI * 2),
     speed: 0,
     walkSpeed: 28 + rand(0, 26),
-    state: opts.state || 'walk', // walk | flee | dead | panic
+    state: opts.state || 'walk', // walk | flee | dead | panic | watch
     target: null,
     shirt: pick(PED_SHIRTS),
     skin: pick(PED_COLORS),
@@ -52,7 +56,9 @@ export function scarePeds(peds, fx, fy, radius = 320) {
   return count;
 }
 
-export function updatePeds(peds, city, dt, time) {
+// `clock` is the day/night clock (0..360) — main.js passes game.clock.
+export function updatePeds(peds, city, dt, time, clock = 0) {
+  const night = isNight(clock);
   for (const p of peds) {
     if (p.dead) continue;
     p.bob += dt * 8;
@@ -75,10 +81,21 @@ export function updatePeds(peds, city, dt, time) {
         p.state = 'walk';
         p.target = null;
       }
+    } else if (p.state === 'watch') {
+      // Night owl on the beach: stand still, face the ocean, drift home
+      // after a while (or instantly when morning comes).
+      p.speed = 0;
+      p.angle = turnToward(p.angle, Math.PI / 2, dt * 2);
+      if (!night || Math.random() < dt * 0.02) { p.state = 'walk'; p.target = null; }
     } else {
       // Stroll: pick a nearby free point, walk to it, idle a moment.
       if (!p.target) {
-        if (Math.random() < dt * 0.4) {
+        // At night, peds near the beach sometimes stop to watch the water
+        // instead of walking on.
+        if (night && p.y > 2100 && Math.random() < dt * 0.25) {
+          p.state = 'watch';
+          p.speed = 0;
+        } else if (Math.random() < dt * 0.4) {
           const t = randomFreePoint(city, Math.random);
           // Prefer nearby targets so peds stay local.
           if (dist(p.x, p.y, t.x, t.y) < 500) p.target = t;
@@ -87,7 +104,8 @@ export function updatePeds(peds, city, dt, time) {
       } else {
         const a = angleTo(p.x, p.y, p.target.x, p.target.y);
         p.angle = turnToward(p.angle, a, dt * 4);
-        p.speed = p.walkSpeed;
+        // Everyone walks slower after dark.
+        p.speed = p.walkSpeed * (night ? 0.75 : 1);
         if (dist(p.x, p.y, p.target.x, p.target.y) < 16) p.target = null;
       }
     }

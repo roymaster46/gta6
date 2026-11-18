@@ -1,6 +1,11 @@
 // combat.js — weapons, bullets, explosions and pickups for Solmarina.
+// Bullets fly in straight lines and die on buildings, cars, gang members,
+// cops, peds and the player — and now the police helicopter too: a player
+// bullet that reaches the hovering heli chips 1 HP off its 150, and the
+// helicopter's crash is handled by police.updateHeli (explosion + bounty).
 import { clamp, dist, angleTo, rand, pick } from './utils.js';
 import { WORLD, pointInBuilding, randomFreePoint } from './city.js';
+import { maxHealthOf } from './garage.js';
 
 export const WEAPONS = {
   pistol: { name: 'Pistol', damage: 34, rate: 0.28, speed: 620, spread: 0.05, range: 520, mag: 12, auto: false, color: '#ffd94a' },
@@ -36,8 +41,9 @@ export function fireWeapon(game, shooter, weapon, tx, ty) {
   return bullets;
 }
 
-// Move bullets; hit buildings, peds, cops, gang members, cars and the player.
-// Returns a list of hit events for sound / wanted / score handling.
+// Move bullets; hit buildings, peds, cops, gang members, cars, the
+// helicopter and the player. Returns a list of hit events for sound /
+// wanted / score handling — main.js pushes them into game.events.
 export function updateBullets(game, dt) {
   const hits = [];
   for (const b of game.bullets) {
@@ -59,13 +65,20 @@ export function updateBullets(game, dt) {
       if (dist(b.x, b.y, car.x, car.y) < 24) {
         b.dead = true;
         car.damage += b.damage * 0.15;
-        car.health = Math.max(0, 100 - car.damage);
+        car.health = Math.max(0, maxHealthOf(car) - car.damage);
         hits.push({ type: 'car', x: b.x, y: b.y, car });
         break;
       }
     }
     if (b.dead) continue;
     if (b.owner === 'player') {
+      // The police helicopter: a big, slow target that soaks bullets.
+      if (game.heli && dist(b.x, b.y, game.heli.x, game.heli.y) < 30) {
+        b.dead = true;
+        game.heli.hp -= b.damage;
+        hits.push({ type: 'heliHit', x: b.x, y: b.y });
+        continue;
+      }
       // Gang members / rivals.
       for (const g of game.gang) {
         if (g.dead) continue;

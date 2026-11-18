@@ -1,13 +1,15 @@
-// missions.js — Solmarina story chain (6 missions) + repeatable taxi fares.
+// missions.js — Solmarina story chain (7 missions) + repeatable taxi fares.
 // Each mission has an id, title, briefing, objective text, a target point and
 // a stage machine driven by updateMissions(game, dt). Completing one pays
 // cash, advances the chain and saves progress. Mission 6 is timed: fail the
-// clock and the job is lost, but the chain lets you retry it.
-import { dist, clamp, rand, pick, fmtCountdown } from './utils.js';
-import { LANDMARKS, randomRoadPoint, randomFreePoint } from './city.js';
+// clock and the job is lost, but the chain lets you retry it. Mission 7 is
+// a night job — starting it in daylight fast-forwards the clock to nightfall,
+// then sends Leo across the city through three checkpoints under 5-star heat.
+import { dist, rand, fmtCountdown } from './utils.js';
+import { LANDMARKS, randomRoadPoint } from './city.js';
 import { makeCar, CAR_MODELS } from './vehicles.js';
-import { makePed } from './peds.js';
 import { addCrime } from './police.js';
+import { advanceToNight, isNight } from './daynight.js';
 
 export const MISSION_DEFS = [
   {
@@ -40,11 +42,23 @@ export const MISSION_DEFS = [
     brief: 'Rico’s final job: a package at the port, a buyer waiting on the yacht at the marina — and the whole PD already tipped off. Grab a fast car. You have 100 seconds.',
     objective: 'Grab the package at the port, deliver it to the yacht',
   },
+  {
+    id: 7, title: 'Midnight Run', pay: 3000,
+    brief: 'The finale. One last package, three checkpoints across the city, and every cop in Solmarina on your tail. It only runs after dark — and you have 150 seconds.',
+    objective: 'Hit all 3 checkpoints, then deliver to the safehouse',
+  },
+];
+
+// The three Midnight Run checkpoints, in order: park, bridge, beach.
+export const MIDNIGHT_CHECKPOINTS = [
+  { x: 1200, y: 1470, label: 'Checkpoint 1 — Palm Park' },
+  { x: 1200, y: 150, label: 'Checkpoint 2 — Marina Bridge' },
+  { x: 1200, y: 2250, label: 'Checkpoint 3 — Playa Sol' },
 ];
 
 export function createMissionState() {
   return {
-    current: 0,          // index into MISSION_DEFS (0-based); 6 = all done
+    current: 0,          // index into MISSION_DEFS (0-based); 7 = all done
     stage: 'idle',       // idle | active | done
     target: null,        // {x, y, label}
     progress: 0,
@@ -57,6 +71,8 @@ export function createMissionState() {
     taxiCooldown: 0,
     packageCarried: false,
     heistCash: 0,
+    checkpoints: null,   // mission 7: [{x, y, label, done}]
+    checkpointIndex: 0,
   };
 }
 
@@ -84,6 +100,14 @@ export function missionObjectiveText(game) {
       if (!ms.packageCarried) return `Grab the package at the port — ${fmtCountdown(missionTimeLeft(ms))} left`;
       return `Deliver to the yacht — ${fmtCountdown(missionTimeLeft(ms))} left`;
     }
+    if (def.id === 7) {
+      if (!ms.packageCarried) return `Grab the package at the port — ${fmtCountdown(missionTimeLeft(ms))} left`;
+      const done = ms.checkpointIndex;
+      if (done < MIDNIGHT_CHECKPOINTS.length) {
+        return `Checkpoint ${done + 1}/3 — ${MIDNIGHT_CHECKPOINTS[done].label} — ${fmtCountdown(missionTimeLeft(ms))} left`;
+      }
+      return `All checkpoints hit — deliver to the safehouse — ${fmtCountdown(missionTimeLeft(ms))} left`;
+    }
     return def.objective;
   }
   if (ms.taxi && !ms.taxi.done) {
@@ -105,6 +129,8 @@ export function startMission(game) {
   ms.timer = 0;
   ms.timeLimit = 0;
   ms.packageCarried = false;
+  ms.checkpoints = null;
+  ms.checkpointIndex = 0;
   const L = LANDMARKS;
   if (def.id === 1) {
     ms.target = { x: L.marina.x, y: L.marina.y, label: 'Pick up the client' };
@@ -140,6 +166,19 @@ export function startMission(game) {
     addCrime(game.wanted, 85, game.time);
     game.events.push({ type: 'siren' });
     ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the package' };
+  } else if (def.id === 7) {
+    // A night job: if the sun is still up, Leo waits for dark first — the
+    // clock jump is visible on screen (the city goes dark), so no extra
+    // message is needed; the mission brief follows below.
+    if (!isNight(game.clock)) {
+      game.clock = advanceToNight(game.clock);
+    }
+    ms.timeLimit = 150;
+    ms.checkpoints = MIDNIGHT_CHECKPOINTS.map((c) => ({ ...c, done: false }));
+    ms.checkpointIndex = 0;
+    addCrime(game.wanted, 100, game.time);
+    game.events.push({ type: 'siren' });
+    ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the package' };
   }
   game.events.push({ type: 'missionStart' });
   setMessage(game, def.title + ' — ' + def.brief, 6);
@@ -165,6 +204,8 @@ export function completeMission(game) {
   ms.targetCar = null;
   ms.packageCarried = false;
   ms.timeLimit = 0;
+  ms.checkpoints = null;
+  ms.checkpointIndex = 0;
   game.gang.length = 0;
   game.save();
 }
@@ -180,6 +221,8 @@ export function failMission(game, reason) {
   ms.targetCar = null;
   ms.packageCarried = false;
   ms.timeLimit = 0;
+  ms.checkpoints = null;
+  ms.checkpointIndex = 0;
   game.gang.length = 0;
   game.events.push({ type: 'missionFail' });
   setMessage(game, `Mission failed: ${def.title} — ${reason}`, 5);
@@ -294,6 +337,31 @@ export function updateMissions(game, dt, time) {
         setMessage(game, 'Package secured — deliver it to the yacht at the marina!', 5);
       }
     } else if (dist(px, py, L.yacht.x, L.yacht.y) < 90) {
+      completeMission(game);
+    }
+  } else if (def.id === 7) {
+    if (!ms.packageCarried) {
+      if (dist(px, py, L.port.x, L.port.y) < 70) {
+        ms.packageCarried = true;
+        ms.target = { x: MIDNIGHT_CHECKPOINTS[0].x, y: MIDNIGHT_CHECKPOINTS[0].y, label: MIDNIGHT_CHECKPOINTS[0].label };
+        setMessage(game, 'Package grabbed! 5-star wanted — hit all 3 checkpoints!', 5);
+      }
+    } else if (ms.checkpointIndex < MIDNIGHT_CHECKPOINTS.length) {
+      const cp = MIDNIGHT_CHECKPOINTS[ms.checkpointIndex];
+      if (dist(px, py, cp.x, cp.y) < 90) {
+        ms.checkpoints[ms.checkpointIndex].done = true;
+        ms.checkpointIndex++;
+        game.events.push({ type: 'pickup' });
+        if (ms.checkpointIndex < MIDNIGHT_CHECKPOINTS.length) {
+          const next = MIDNIGHT_CHECKPOINTS[ms.checkpointIndex];
+          ms.target = { x: next.x, y: next.y, label: next.label };
+          setMessage(game, `Checkpoint ${ms.checkpointIndex}/3 hit — next: ${next.label}`, 4);
+        } else {
+          ms.target = { x: L.safehouse.x, y: L.safehouse.y, label: 'Deliver to the safehouse' };
+          setMessage(game, 'All checkpoints hit — deliver to the safehouse!', 4);
+        }
+      }
+    } else if (dist(px, py, L.safehouse.x, L.safehouse.y) < 90) {
       completeMission(game);
     }
   }

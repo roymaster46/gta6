@@ -1,10 +1,13 @@
 // player.js — Leo Marín on foot and behind the wheel.
 // Owns movement, entering/exiting cars, shooting, damage and respawn.
-import { clamp, dist, angleTo, turnToward } from './utils.js';
+// Driving now includes nitro: press N in a car that has a Nitro Kit fitted
+// at the garage for a short boost (2.5s, 8s cooldown) with flame particles.
+import { clamp, dist, angleTo, turnToward, rand, pick } from './utils.js';
 import { WORLD, collideBuildings, LANDMARKS } from './city.js';
-import { nearestCar, driveCar } from './vehicles.js';
+import { nearestCar, driveCar, carHealth } from './vehicles.js';
 import { fireWeapon, WEAPONS } from './combat.js';
 import { addCrime } from './police.js';
+import { activateNitro, nitroActive, nitroReady, maxHealthOf } from './garage.js';
 
 export function createPlayer() {
   return {
@@ -131,9 +134,30 @@ export function updatePlayerDriving(game, dt, time) {
     left: input.is('left'), right: input.is('right'),
     handbrake: input.is('handbrake'),
   };
-  driveCar(car, drive, dt);
-  // Car vs buildings: push out and damage on hard hits.
-  const before = { x: car.x, y: car.y };
+  // Nitro: one press, 2.5s of boost, 8s cooldown. Only works on a car with
+  // the kit fitted; pressing N in a stock car tells you why nothing happens.
+  if (input.wasPressed('nitro')) {
+    if (activateNitro(car, time)) {
+      game.audio.nitro();
+      game.events.push({ type: 'toast', text: 'NITRO!' });
+    } else if (car.upgrades && !car.upgrades.nitro) {
+      game.events.push({ type: 'toast', text: 'No nitro kit — fit one at the garage (G)' });
+    }
+  }
+  driveCar(car, drive, dt, time);
+  // Nitro flame particles trail behind the exhaust while boosting.
+  if (nitroActive(car, time)) {
+    const bx = car.x - Math.cos(car.angle) * car.model.len * 0.6;
+    const by = car.y - Math.sin(car.angle) * car.model.len * 0.6;
+    game.particles.push({
+      x: bx + rand(-4, 4), y: by + rand(-4, 4),
+      vx: -Math.cos(car.angle) * 120 + rand(-20, 20),
+      vy: -Math.sin(car.angle) * 120 + rand(-20, 20),
+      life: 0.35, maxLife: 0.35, size: 6, color: pick(['#ff9a3c', '#ffd23c', '#ff5a3c']),
+    });
+  }
+  // Car vs buildings: push out and damage on hard hits. Health is measured
+  // against the car's own max (armour plating raises it), not a flat 100.
   const pos = { x: car.x, y: car.y };
   if (collideBuildings(game.city, pos, 20)) {
     const impact = Math.abs(car.speed);
@@ -141,7 +165,7 @@ export function updatePlayerDriving(game, dt, time) {
     car.speed *= -0.25;
     if (impact > 120) {
       car.damage += impact * 0.06;
-      car.health = Math.max(0, 100 - car.damage);
+      car.health = carHealth(car);
       game.events.push({ type: 'crash' });
       game.audio.crash();
     }
@@ -151,10 +175,10 @@ export function updatePlayerDriving(game, dt, time) {
   // Engine sound follows speed.
   game.audio.engine(Math.abs(car.speed) / car.model.top);
   // Wrecked car: smoke, then the player is forced out.
-  if (car.health <= 0 && car.damage > 0) {
+  if (carHealth(car) <= 0 && car.damage > 0) {
     game.events.push({ type: 'explosion', x: car.x, y: car.y });
     game.audio.explosion();
-    car.health = 100; car.damage = 0;
+    car.health = maxHealthOf(car); car.damage = 0;
     tryEnterCar(game, time);
     damagePlayer(game, 20, 'crash');
   }
@@ -182,6 +206,8 @@ export function respawn(game, kind) {
   game.wanted.heat = 0;
   game.cops.length = 0;
   game.cars = game.cars.filter((c) => c.kind !== 'police');
+  // The helicopter leaves too — the PD calls it off after an arrest.
+  game.heli = null;
   game.audio.engine(null);
   return lost;
 }

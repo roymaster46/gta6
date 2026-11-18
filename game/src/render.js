@@ -1,9 +1,17 @@
 // render.js — draws Solmarina: the city, cars, people, effects, HUD,
 // minimap and menus. Canvas 2D only, no image assets — all art is drawn.
-import { clamp, lerp, dist, TAU } from './utils.js';
+// New in this revision: the day/night cycle. After dark the sky goes deep
+// blue, windows light up warm yellow (deterministic per building, via
+// hash2), street lamps glow, the player's headlights cut a cone through the
+// dark, and the police helicopter shines a spotlight. The garage upgrade
+// shop, the clock HUD and the nitro gauge are drawn here too.
+import { clamp, lerp, dist, TAU, hash2 } from './utils.js';
 import { WORLD, ROAD_W, LANDMARKS } from './city.js';
 import { fmtMoney, fmtTime } from './utils.js';
-import { missionObjectiveText, currentMissionDef } from './missions.js';
+import { missionObjectiveText, currentMissionDef, MIDNIGHT_CHECKPOINTS } from './missions.js';
+import { phaseAt, clockLabel } from './daynight.js';
+import { UPGRADES, upgradeLevel, upgradeCost } from './garage.js';
+import { nitroReady, nitroActive } from './garage.js';
 
 const SKY = '#ffd9a0';
 const GRASS = '#8ec06a';
@@ -18,11 +26,18 @@ const SIDEWALK = '#b8b0a0';
 export function drawWorld(ctx, game, view) {
   const { city, camera } = game;
   const vw = view.w, vh = view.h;
+  const light = game.light ?? 1;
   ctx.save();
-  // Sun-soaked sky gradient backdrop (visible past the world edge).
+  // Sky gradient backdrop (visible past the world edge). At night the warm
+  // sunset gradient deepens into dark blue.
   const sky = ctx.createLinearGradient(0, 0, 0, vh);
-  sky.addColorStop(0, '#ffe9b8');
-  sky.addColorStop(1, '#ffc98a');
+  if (light > 0.7) {
+    sky.addColorStop(0, '#ffe9b8');
+    sky.addColorStop(1, '#ffc98a');
+  } else {
+    sky.addColorStop(0, '#0a1230');
+    sky.addColorStop(1, '#1a2a55');
+  }
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, vw, vh);
   ctx.translate(-camera.x, -camera.y);
@@ -68,6 +83,17 @@ export function drawWorld(ctx, game, view) {
     ctx.fillStyle = '#4ad8d0';
     ctx.fillRect(ux + 18, 2212, 22, 10);
   }
+  // Beach kiosks: striped stalls that sell ice cream by day.
+  for (const k of city.kiosks) {
+    ctx.fillStyle = k.color;
+    ctx.fillRect(k.x, k.y, k.w, k.h);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(k.x, k.y, k.w, 8);
+    ctx.fillStyle = '#222';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('SNACKS', k.x + k.w / 2, k.y + k.h - 6);
+  }
 
   // Park.
   const park = { x: 1050, y: 1350, w: 300, h: 300 };
@@ -77,6 +103,11 @@ export function drawWorld(ctx, game, view) {
   ctx.beginPath();
   ctx.ellipse(park.x + 150, park.y + 150, 52, 34, 0, 0, TAU);
   ctx.fill();
+  // Plaza with benches, just north of the park.
+  ctx.fillStyle = '#c8bfae';
+  ctx.fillRect(city.plaza.x, city.plaza.y, city.plaza.w, city.plaza.h);
+  ctx.fillStyle = '#8a6a4a';
+  for (const b of city.plaza.benches) ctx.fillRect(b.x, b.y, 34, 10);
 
   // Roads.
   for (const rx of city.roadsV) {
@@ -105,6 +136,21 @@ export function drawWorld(ctx, game, view) {
   }
   ctx.setLineDash([]);
 
+  // Billboards along the main roads.
+  for (const b of city.billboards) {
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(b.x - 3, b.y - 3, b.w + 6, b.h + 6);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(b.text, b.x + b.w / 2, b.y + 18);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(b.sub, b.x + b.w / 2, b.y + 32);
+  }
+
   // Port docks.
   ctx.fillStyle = '#8a6a4a';
   for (const d of city.docks) ctx.fillRect(d.x, d.y, d.w, d.h);
@@ -112,7 +158,9 @@ export function drawWorld(ctx, game, view) {
   drawBoat(ctx, LANDMARKS.boat.x, LANDMARKS.boat.y, game.time);
   drawBoat(ctx, LANDMARKS.yacht.x, LANDMARKS.yacht.y, game.time, { hull: '#f2e8c8', cabin: '#2a6a9a', scale: 1.35 });
 
-  // Buildings with fake height shading.
+  // Buildings with fake height shading. At night a deterministic subset of
+  // windows glows warm yellow (same building, same lit windows, every night).
+  const night = light < 0.6;
   for (const b of city.buildings) {
     if (b.x + b.w < x0 || b.x > x1 || b.y + b.h < y0 || b.y > y1) continue;
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
@@ -122,12 +170,14 @@ export function drawWorld(ctx, game, view) {
     ctx.fillStyle = b.roof;
     ctx.fillRect(b.x + 5, b.y + 5, b.w - 10, b.h - 10);
     // Windows.
-    ctx.fillStyle = 'rgba(40,60,90,0.75)';
     const cols = Math.max(1, Math.floor(b.w / 26));
     const rows = Math.max(1, Math.floor(b.h / 26));
     for (let cx = 0; cx < cols; cx++) {
       for (let cy = 0; cy < rows; cy++) {
-        ctx.fillRect(b.x + 10 + cx * 24, b.y + 10 + cy * 24, 12, 12);
+        const wx = b.x + 10 + cx * 24, wy = b.y + 10 + cy * 24;
+        const lit = night && hash2(wx, wy) < 0.45;
+        ctx.fillStyle = lit ? '#ffd94a' : 'rgba(40,60,90,0.75)';
+        ctx.fillRect(wx, wy, 12, 12);
       }
     }
     if (b.label) {
@@ -176,6 +226,8 @@ export function drawWorld(ctx, game, view) {
   // Cars (sorted so the player's car draws on top when overlapping).
   const cars = [...game.cars].sort((a, b) => (a === game.player.car ? 1 : 0) - (b === game.player.car ? 1 : 0));
   for (const car of cars) drawCar(ctx, car, game.time);
+  // Police helicopter.
+  if (game.heli) drawHeli(ctx, game.heli, game.time, light);
   // Cops on foot.
   for (const c of game.cops) {
     if (c.inCar) continue;
@@ -195,7 +247,98 @@ export function drawWorld(ctx, game, view) {
   }
   // Particles.
   drawParticles(ctx, game);
+  // Night lighting: dark overlay, lamp glows, headlight cone, heli spotlight.
+  if (light < 0.95) drawNight(ctx, game, view, light);
   ctx.restore();
+}
+
+// Night pass, drawn in world space after everything else: a dark blue
+// overlay over the visible area, then additive light pools under every
+// street lamp, a headlight cone from the player's car, and the helicopter's
+// spotlight sweeping down onto Leo.
+function drawNight(ctx, game, view, light) {
+  const { camera } = game;
+  const x0 = camera.x, y0 = camera.y;
+  const x1 = camera.x + view.w, y1 = camera.y + view.h;
+  const darkness = clamp((0.95 - light) / 0.6, 0, 1) * 0.55;
+  ctx.fillStyle = `rgba(8,12,40,${darkness})`;
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  // Lamp glows.
+  for (const l of game.city.lamps) {
+    if (l.x < x0 - 60 || l.x > x1 + 60 || l.y < y0 - 60 || l.y > y1 + 60) continue;
+    const g = ctx.createRadialGradient(l.x, l.y, 2, l.x, l.y, l.glow || 34);
+    g.addColorStop(0, 'rgba(255,220,130,0.5)');
+    g.addColorStop(1, 'rgba(255,220,130,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(l.x, l.y, l.glow || 34, 0, TAU); ctx.fill();
+  }
+  // Player headlights: a cone ahead of the car plus a small glow at the nose.
+  const p = game.player;
+  if (p.inCar && p.car) {
+    const car = p.car;
+    const nx = car.x + Math.cos(car.angle) * car.model.len * 0.5;
+    const ny = car.y + Math.sin(car.angle) * car.model.len * 0.5;
+    ctx.save();
+    ctx.translate(nx, ny);
+    ctx.rotate(car.angle);
+    const grad = ctx.createLinearGradient(0, 0, 260, 0);
+    grad.addColorStop(0, 'rgba(255,240,170,0.35)');
+    grad.addColorStop(1, 'rgba(255,240,170,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(260, -70);
+    ctx.lineTo(260, 70);
+    ctx.lineTo(0, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  // Helicopter spotlight: a cone from the heli down onto the player.
+  if (game.heli) {
+    const heli = game.heli;
+    const grad = ctx.createRadialGradient(p.x, p.y, 4, p.x, p.y, 130);
+    grad.addColorStop(0, 'rgba(255,250,200,0.4)');
+    grad.addColorStop(1, 'rgba(255,250,200,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 130, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawHeli(ctx, heli, time, light) {
+  ctx.save();
+  ctx.translate(heli.x, heli.y);
+  // Shadow on the ground far below (the heli hovers high).
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath(); ctx.ellipse(6, 34, 26, 12, 0, 0, TAU); ctx.fill();
+  // Body.
+  ctx.fillStyle = '#1a3a6a';
+  ctx.beginPath(); ctx.ellipse(0, 0, 26, 14, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#2a5a9a';
+  ctx.fillRect(-8, -6, 22, 12);
+  // Tail.
+  ctx.fillStyle = '#1a3a6a';
+  ctx.fillRect(-46, -3, 24, 6);
+  // Rotor (spins with heli.rotor).
+  ctx.strokeStyle = 'rgba(200,200,200,0.8)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  const r = heli.rotor || 0;
+  ctx.moveTo(Math.cos(r) * 34, Math.sin(r) * 6);
+  ctx.lineTo(-Math.cos(r) * 34, -Math.sin(r) * 6);
+  ctx.stroke();
+  // Searchlight beam down to the player at night.
+  ctx.restore();
+  // HP bar while damaged.
+  if (heli.hp < heli.maxHp) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(heli.x - 24, heli.y - 34, 48, 6);
+    ctx.fillStyle = '#ff4a4a';
+    ctx.fillRect(heli.x - 24, heli.y - 34, 48 * clamp(heli.hp / heli.maxHp, 0, 1), 6);
+  }
 }
 
 function drawBoat(ctx, x, y, time, style = {}) {
@@ -257,6 +400,29 @@ function drawMissionMarker(ctx, game) {
   // marker, edge arrow): the taxi marker only shows when no mission runs.
   if (ms.stage === 'active' && ms.target) {
     drawMarker(ctx, ms.target.x, ms.target.y, '#ff4ad8', '★');
+    // Mission 7 checkpoints: the next one pulses pink, done ones are green.
+    if (ms.checkpoints) {
+      ms.checkpoints.forEach((cp, i) => {
+        if (cp.done) {
+          ctx.fillStyle = '#3ab86a';
+          ctx.beginPath(); ctx.arc(cp.x, cp.y, 10, 0, TAU); ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('✓', cp.x, cp.y + 4);
+        } else if (i === ms.checkpointIndex) {
+          drawMarker(ctx, cp.x, cp.y, '#ff4ad8', String(i + 1));
+        } else {
+          ctx.strokeStyle = 'rgba(255,74,216,0.6)';
+          ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(cp.x, cp.y, 16, 0, TAU); ctx.stroke();
+          ctx.fillStyle = 'rgba(255,74,216,0.8)';
+          ctx.font = 'bold 11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(String(i + 1), cp.x, cp.y - 22);
+        }
+      });
+    }
     return;
   }
   if (ms.taxi) {
@@ -345,6 +511,23 @@ function drawCar(ctx, car, time) {
   // Shadow.
   ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.fillRect(-L / 2 + 3, -W / 2 + 4, L, W);
+  // Nitro flame licking out of the exhaust while boosting.
+  if (car.boostUntil && time < car.boostUntil) {
+    ctx.fillStyle = '#ff9a3c';
+    ctx.beginPath();
+    ctx.moveTo(-L / 2, -6);
+    ctx.lineTo(-L / 2 - 18 - Math.random() * 8, 0);
+    ctx.lineTo(-L / 2, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffd23c';
+    ctx.beginPath();
+    ctx.moveTo(-L / 2, -3);
+    ctx.lineTo(-L / 2 - 10, 0);
+    ctx.lineTo(-L / 2, 3);
+    ctx.closePath();
+    ctx.fill();
+  }
   // Damage smoke.
   if (car.damage > 45) {
     ctx.fillStyle = 'rgba(80,80,80,0.5)';
@@ -407,6 +590,69 @@ function drawParticles(ctx, game) {
   ctx.globalAlpha = 1;
 }
 
+// --- Garage shop ------------------------------------------------------------
+// Full-screen shop overlay: three upgrade rows with price, owned level and
+// the selected row; 1/2/3 buys, G/Esc closes. Drawn over the dimmed world.
+export function drawShop(ctx, game, view) {
+  const w = view.w, h = view.h;
+  const p = game.player;
+  ctx.save();
+  ctx.fillStyle = 'rgba(8,14,28,0.72)';
+  ctx.fillRect(0, 0, w, h);
+  const pw = 460, ph = 320;
+  const px = (w - pw) / 2, py = (h - ph) / 2;
+  ctx.fillStyle = '#14202e';
+  roundRect(ctx, px, py, pw, ph, 12); ctx.fill();
+  ctx.strokeStyle = '#e8c832';
+  ctx.lineWidth = 2;
+  roundRect(ctx, px, py, pw, ph, 12); ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd94a';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillText('PAY-N-SPRAY — UPGRADE SHOP', w / 2, py + 38);
+  ctx.fillStyle = '#fff';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(`Cash: ${fmtMoney(p.money)}  •  Car: ${p.car ? p.car.model.name : 'none'}`, w / 2, py + 62);
+  const shop = game.shop;
+  UPGRADES.forEach((def, i) => {
+    const y = py + 92 + i * 62;
+    const level = p.car ? upgradeLevel(p.car, def.id) : 0;
+    const cost = upgradeCost(def, level);
+    const selected = shop.selected === i;
+    if (selected) {
+      ctx.fillStyle = 'rgba(232,200,50,0.18)';
+      roundRect(ctx, px + 16, y - 6, pw - 32, 52, 8); ctx.fill();
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = selected ? '#ffd94a' : '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(`${i + 1}. ${def.name}`, px + 30, y + 16);
+    ctx.fillStyle = '#c8d8e8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(def.desc, px + 30, y + 36);
+    ctx.textAlign = 'right';
+    if (cost === null) {
+      ctx.fillStyle = '#3ab86a';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('MAXED', px + pw - 30, y + 24);
+    } else {
+      ctx.fillStyle = p.money >= cost ? '#fff' : '#ff6a6a';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(`$${cost}`, px + pw - 30, y + 24);
+    }
+    // Owned-level pips.
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#e8c832';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('●'.repeat(level) + '○'.repeat(def.max - level), px + pw - 30, y + 42);
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#c8d8e8';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('1 / 2 / 3 buy  •  ↑ ↓ select  •  G or Esc close', w / 2, py + ph - 18);
+  ctx.restore();
+}
+
 // --- HUD --------------------------------------------------------------------
 export function drawHUD(ctx, game, view) {
   const p = game.player;
@@ -430,6 +676,16 @@ export function drawHUD(ctx, game, view) {
   ctx.font = 'bold 9px sans-serif';
   ctx.fillText('HP', 176, 49);
   ctx.fillText('ARMOR', 176, 63);
+  // Clock top-centre: sun/moon, phase name and the in-game time.
+  const phase = phaseAt(game.clock ?? 0);
+  const clockText = `${phase.name === 'Night' ? '☾' : '☀'}  ${phase.name}  ${clockLabel(game.clock ?? 0)}`;
+  ctx.font = 'bold 14px sans-serif';
+  const cw = ctx.measureText(clockText).width + 24;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  roundRect(ctx, (w - cw) / 2, 12, cw, 30, 8); ctx.fill();
+  ctx.fillStyle = '#ffe9a0';
+  ctx.textAlign = 'center';
+  ctx.fillText(clockText, w / 2, 32);
   // Wanted stars top-right.
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   roundRect(ctx, w - 190, 12, 178, 40, 8); ctx.fill();
@@ -458,6 +714,29 @@ export function drawHUD(ctx, game, view) {
     ctx.fillText(String(Math.round(Math.abs(p.car.speed) * 1.6)), w - 66, h - 32);
     ctx.font = '11px sans-serif';
     ctx.fillText('km/h  ' + p.car.model.name, w - 66, h - 18);
+    // Nitro gauge above the speedometer (only on a car with the kit).
+    if (p.car.upgrades && p.car.upgrades.nitro) {
+      const ready = nitroReady(p.car, game.time);
+      const boosting = nitroActive(p.car, game.time);
+      const label = boosting ? 'NITRO!' : ready ? 'NITRO READY [N]' : 'NITRO RECHARGING';
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      roundRect(ctx, w - 190, h - 96, 178, 24, 8); ctx.fill();
+      ctx.fillStyle = boosting ? '#ff9a3c' : ready ? '#ffd94a' : '#888';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, w - 101, h - 79);
+    }
+  }
+  // Garage hint when driving near the Pay-n-Spray.
+  if (p.inCar && p.car && dist(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y) < 140) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const hint = 'Press G — Upgrade Shop';
+    ctx.font = 'bold 13px sans-serif';
+    const hw = ctx.measureText(hint).width + 20;
+    roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
+    ctx.fillStyle = '#ffd94a';
+    ctx.textAlign = 'center';
+    ctx.fillText(hint, w / 2, h - 121);
   }
   // Weapon + ammo bottom-left.
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -551,6 +830,8 @@ function drawMinimap(ctx, game, view) {
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(x + wx * scale, y + wy * scale, r, 0, TAU); ctx.fill();
   };
+  // Garage (upgrade shop) marker.
+  dot(LANDMARKS.garage.x, LANDMARKS.garage.y, '#e8c832', 4);
   // Mission marker.
   if (game.missions.target && game.missions.stage === 'active') dot(game.missions.target.x, game.missions.target.y, '#ff4ad8', 5);
   if (game.missions.taxi) {
@@ -560,6 +841,7 @@ function drawMinimap(ctx, game, view) {
   }
   for (const c of game.cops) dot(c.x, c.y, '#2a6aff', 3);
   for (const car of game.cars) if (car.kind === 'police') dot(car.x, car.y, '#2a6aff', 3);
+  if (game.heli) dot(game.heli.x, game.heli.y, '#ff2a2a', 4);
   dot(game.player.x, game.player.y, '#fff', 4);
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 1;
@@ -591,12 +873,12 @@ export function drawTitle(ctx, game, view) {
   const story = [
     'Leo Marín came back to Solmarina with $50 and a borrowed jacket.',
     'Drive fares, steal cars, dodge the PD — and pull the heist of the decade.',
-    'Six missions. One city. No rules but yours.',
+    'Seven missions. One city. No rules but yours.',
   ];
   story.forEach((line, i) => ctx.fillText(line, w / 2, h / 2 - 58 + i * 22));
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 14px sans-serif';
-  const controls = 'WASD move / drive  •  SHIFT sprint  •  MOUSE aim, CLICK shoot  •  E enter car  •  F mission  •  P pause  •  M mute  •  R restart';
+  const controls = 'WASD move / drive  •  SHIFT sprint  •  MOUSE aim, CLICK shoot  •  E enter car  •  F mission  •  G garage  •  N nitro  •  P pause  •  M mute  •  R restart';
   ctx.fillText(controls, w / 2, h / 2 + 34);
   // Best stats.
   const best = game.saveData;
@@ -628,7 +910,7 @@ export function drawPause(ctx, game, view) {
   ctx.fillText('PAUSED', w / 2, h / 2 - 60);
   ctx.font = '16px sans-serif';
   const p = game.player;
-  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/6  •  Fares ${p.stats.faresDone}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
+  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/7  •  Fares ${p.stats.faresDone}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
   ctx.fillText('P resume  •  R restart  •  M mute  •  Click to resume', w / 2, h / 2 + 16);
   ctx.restore();
 }
@@ -646,7 +928,7 @@ export function drawEndScreen(ctx, game, view, kind, lost) {
   ctx.font = '16px sans-serif';
   ctx.fillText(`The Solmarina PD took ${fmtMoney(lost)} off you. You wake up at the ${kind === 'busted' ? 'hospital' : 'safehouse'}.`, w / 2, h / 2 - 30);
   const p = game.player;
-  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/6  •  Fares ${p.stats.faresDone}  •  Cars stolen ${p.stats.carsStolen}`, w / 2, h / 2 + 2);
+  ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/7  •  Fares ${p.stats.faresDone}  •  Cars stolen ${p.stats.carsStolen}`, w / 2, h / 2 + 2);
   ctx.fillStyle = '#ffd94a';
   ctx.font = 'bold 20px sans-serif';
   ctx.fillText('CLICK OR PRESS R TO GET BACK OUT THERE', w / 2, h / 2 + 46);
