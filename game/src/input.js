@@ -11,6 +11,11 @@ export const ACTION_SHOOT = 16;
 export const ACTION_NITRO = 32;
 export const ACTION_HORN = 64;
 export const ACTION_CAMERA = 128;
+// r6: shop (buy at the gun shop), descend (bring the heli down), and
+// vigilante (take the next wanted criminal job).
+export const ACTION_SHOP = 256;
+export const ACTION_DESCEND = 512;
+export const ACTION_VIGILANTE = 1024;
 
 const KEYMAP = {
   KeyW: 'up', ArrowUp: 'up',
@@ -26,8 +31,11 @@ const KEYMAP = {
   KeyC: 'camera',
   KeyP: 'pause', Escape: 'pause',
   Enter: 'confirm',
-  Digit1: 'w1', Digit2: 'w2', Digit3: 'w3', Digit4: 'w4',
+  Digit1: 'w1', Digit2: 'w2', Digit3: 'w3', Digit4: 'w4', Digit5: 'w5',
   KeyM: 'mute', KeyR: 'reload', KeyG: 'garage',
+  // r6 keys: B shop, X heli descend, V vigilante job, Ctrl crouch/stealth.
+  KeyB: 'shop', KeyX: 'descend', KeyV: 'vigilante',
+  ControlLeft: 'crouch', ControlRight: 'crouch',
 };
 
 export function createInput(canvas) {
@@ -55,6 +63,9 @@ export function createInput(canvas) {
     if (name === 'nitro') actions |= ACTION_NITRO;
     if (name === 'horn') actions |= ACTION_HORN;
     if (name === 'camera') actions |= ACTION_CAMERA;
+    if (name === 'shop') actions |= ACTION_SHOP;
+    if (name === 'descend') actions |= ACTION_DESCEND;
+    if (name === 'vigilante') actions |= ACTION_VIGILANTE;
   }
 
   function onKeyUp(e) {
@@ -116,7 +127,7 @@ export function createInput(canvas) {
     move() {
       const x = (held.has('right') ? 1 : 0) - (held.has('left') ? 1 : 0);
       const y = (held.has('up') ? 1 : 0) - (held.has('down') ? 1 : 0);
-      return { moveX: x, moveY: y, sprint: held.has('sprint'), jump: held.has('jump') };
+      return { moveX: x, moveY: y, sprint: held.has('sprint'), jump: held.has('jump'), crouch: held.has('crouch') };
     },
     isHeld(name) { return held.has(name); },
     takeActions() {

@@ -133,6 +133,24 @@ export function createAudio() {
     horn() { tone(370, 0.25, 'square', 0.12); tone(466, 0.25, 'square', 0.1); },
     crash() { noise(0.3, 0.45, 700); },
     jump() { tone(300, 0.12, 'sine', 0.12, 520); },
+    // r6: rotor wash for the helicopter, a two-tone SWAT siren, the gun
+    // shop bell, the heist alarm and the soft blip of a new city event.
+    rotor(on, speedNorm) {
+      if (!ensure()) return;
+      if (!on) { engineGain.gain.setTargetAtTime(0, ctx.currentTime, 0.2); return; }
+      engineOsc.frequency.setTargetAtTime(28 + (speedNorm || 0) * 40, ctx.currentTime, 0.1);
+      engineGain.gain.setTargetAtTime(muted ? 0 : 0.09, ctx.currentTime, 0.15);
+    },
+    swatSiren(on) {
+      if (!ensure()) return;
+      sirenGain.gain.setTargetAtTime(on && !muted ? 0.06 : 0, ctx.currentTime, 0.2);
+      if (on) sirenOsc.frequency.setValueAtTime(520 + 260 * Math.sin(ctx.currentTime * 7), ctx.currentTime);
+    },
+    shopBell() { tone(1046, 0.12, 'sine', 0.18); setTimeout(() => tone(1568, 0.2, 'sine', 0.16), 110); },
+    alarm() { [880, 660, 880, 660].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'sawtooth', 0.16), i * 200)); },
+    eventBlip() { tone(740, 0.08, 'triangle', 0.14); setTimeout(() => tone(1108, 0.1, 'triangle', 0.12), 70); },
+    rifleShot() { noise(0.22, 0.5, 3200); tone(120, 0.14, 'square', 0.26, 45); },
+    heliDown() { noise(0.8, 0.5, 500); tone(90, 0.7, 'sawtooth', 0.22, 40); },
     startMusic() {
       if (!ensure() || musicOn) return;
       musicOn = true;

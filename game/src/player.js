@@ -19,6 +19,12 @@ export function createPlayer(x, z) {
     hurtTimer: 0,
     cash: 60,
     rep: 0,
+    // r6: stamina drains on sprint and refills at rest; crouching
+    // (Ctrl) halves your speed but keeps you quiet for stealth jobs.
+    stamina: 100,
+    maxStamina: 100,
+    crouching: false,
+    exhausted: false,
   };
 }
 
@@ -45,8 +51,22 @@ export function updatePlayer(p, input, dt, city) {
 
   const speed = input.sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
   p.sprinting = input.sprint && p.moving;
-  p.vx += (mx * speed - p.vx) * Math.min(1, PLAYER.accel * dt / speed * 6);
-  p.vz += (mz * speed - p.vz) * Math.min(1, PLAYER.accel * dt / speed * 6);
+  // r6: stamina — sprinting drains it, standing still refills it fast,
+  // and running it dry forces a walk until it recovers past 25.
+  p.crouching = !!input.crouch;
+  const crouchFactor = p.crouching ? 0.5 : 1;
+  if (p.sprinting) {
+    p.stamina = Math.max(0, p.stamina - dt * 16);
+    if (p.stamina === 0) p.exhausted = true;
+  } else if (!p.moving) {
+    p.stamina = Math.min(p.maxStamina, p.stamina + dt * 22);
+  } else {
+    p.stamina = Math.min(p.maxStamina, p.stamina + dt * 8);
+  }
+  if (p.exhausted && p.stamina > 25) p.exhausted = false;
+  const effSpeed = (p.exhausted ? PLAYER.walkSpeed : speed) * crouchFactor;
+  p.vx += (mx * effSpeed - p.vx) * Math.min(1, PLAYER.accel * dt / speed * 6);
+  p.vz += (mz * effSpeed - p.vz) * Math.min(1, PLAYER.accel * dt / speed * 6);
   if (len <= 0.05) {
     const f = Math.max(0, 1 - PLAYER.friction * dt / 10);
     p.vx *= f;
@@ -121,6 +141,14 @@ export function respawnPlayer(p, x, z, cost) {
 
 export function playerSpeed(p) {
   return Math.hypot(p.vx, p.vz);
+}
+
+export function playerStaminaPct(p) {
+  return Math.round((p.stamina / p.maxStamina) * 100);
+}
+
+export function isSneaking(p) {
+  return !!p.crouching && p.moving;
 }
 
 export function nearestToPlayer(p, list, maxDist) {

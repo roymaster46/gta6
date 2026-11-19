@@ -6,6 +6,59 @@
 import { POLICE, WANTED } from './config.js';
 import { clamp, createRng, dist, rngRange, wrapAngle } from './utils.js';
 import { createCar } from './vehicles.js';
+import { createRoadblock, planRoadblocks, responseTier, spawnSwatForStars } from './swat.js';
+
+export { responseTier };
+
+// r6: heat by named crime, so missions and events can log exactly what
+// the player did — and so a vault grab or a heli theft is worth more heat
+// than a punch. Returns the new star count.
+export function addHeatFor(w, crime, now) {
+  const amount = (WANTED.crimes && WANTED.crimes[crime]) ?? 1;
+  return addHeat(w, amount, now);
+}
+
+export function crimesForStars(stars) {
+  if (stars >= 5) return ['swat', 'fib', 'heli', 'roadblock'];
+  if (stars >= 4) return ['heli', 'roadblock'];
+  if (stars >= 3) return ['pursuit'];
+  if (stars >= 1) return ['patrol'];
+  return [];
+}
+
+export function isFiveStar(w) {
+  return w.stars >= WANTED.swatAtStars;
+}
+
+export function createRoadblockState() {
+  return { blocks: [], spawnTimer: 0, placed: 0 };
+}
+
+export function updateRoadblocks(state, wanted, player, dt) {
+  if (wanted.stars < WANTED.roadblockAtStars) {
+    if (state.blocks.length > 0) state.blocks = [];
+    return state;
+  }
+  state.spawnTimer -= dt;
+  const want = Math.min(WANTED.roadblockMax, wanted.stars - 2);
+  if (state.blocks.length < want && state.spawnTimer <= 0) {
+    state.spawnTimer = 18;
+    const fresh = planRoadblocks(player, player.heading || 0, 1);
+    state.blocks.push(...fresh);
+    state.placed += 1;
+  }
+  state.blocks = state.blocks.filter((b) => b.active);
+  return state;
+}
+
+export function roadblockBlocksCar(state, x, z, radius) {
+  for (const b of state.blocks) {
+    for (const bar of b.barriers) {
+      if (dist(x, z, bar.x, bar.z) < 2.4 + (radius || 0)) return b;
+    }
+  }
+  return null;
+}
 
 export function createWanted() {
   return {
@@ -151,7 +204,18 @@ export function spawnCopsForStars(stars, rng, player) {
     const a = rngRange(rng, 0, Math.PI * 2);
     cars.push(createCopCar(player.x + Math.sin(a) * 48, player.z + Math.cos(a) * 48, a));
   }
-  return { cops, cars };
+  // r6: 5 stars brings the SWAT squad and FIB interceptors instead of
+  // just more beat cops — the response visibly changes at the top.
+  const swat = spawnSwatForStars(stars, rng, player);
+  return { cops, cars, swatUnits: swat.units, fibCars: swat.cars };
+}
+
+export function wantedTierLabel(stars) {
+  if (stars >= 5) return 'FIVE-STAR — SWAT & FIB';
+  if (stars >= 4) return 'Air support overhead';
+  if (stars >= 3) return 'Full pursuit';
+  if (stars >= 1) return 'Police responding';
+  return 'Clean';
 }
 
 export function updateHeli(heli, player, dt) {
@@ -179,5 +243,10 @@ export function wantedSummary(w) {
     band: notorietyBand(w.notoriety),
     heli: heliActive(w),
     roadblock: roadblockActive(w),
+    // r6: the summary now tells the HUD exactly which top-tier response
+    // is live, so the 5-star banner can say SWAT instead of just stars.
+    tier: responseTier(w.stars),
+    tierLabel: wantedTierLabel(w.stars),
+    fiveStar: isFiveStar(w),
   };
 }

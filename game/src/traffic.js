@@ -7,15 +7,23 @@ import { TRAFFIC } from './config.js';
 import { createCar } from './vehicles.js';
 import { clamp, createRng, dist, rngInt, rngPick, rngRange, wrapAngle } from './utils.js';
 
-const TRAFFIC_MODELS = ['hatch', 'sedan', 'sedan', 'coupe', 'van', 'pickup', 'taxi'];
+const TRAFFIC_MODELS = ['hatch', 'sedan', 'sedan', 'coupe', 'van', 'pickup', 'taxi', 'bike', 'bike', 'truck'];
 const PED_COLORS = [0xd8b48a, 0x7a9ab8, 0xb87a7a, 0x8ab87a, 0xc9a86a, 0x9a8ab8, 0x6a8a8a];
+// r6: pedestrians are no longer clones — an archetype sets their pace and
+// how often they stop, so joggers hurry past vendors who mostly stand still.
+const PED_ARCHETYPES = ['commuter', 'jogger', 'vendor', 'tourist', 'dockworker', 'student'];
+const ARCHETYPE_SPEED = { commuter: 1.6, jogger: 3.4, vendor: 0.7, tourist: 1.1, dockworker: 1.9, student: 2.2 };
 
 export function createTrafficCar(rng, x, z, heading) {
   const car = createCar(rngPick(rng, TRAFFIC_MODELS), x, z, heading);
-  car.speed = rngRange(rng, 7, TRAFFIC.carSpeed);
-  car.cruise = rngRange(rng, 8, TRAFFIC.carSpeed);
+  // r6: bikes are quick and light, trucks are slow and heavy — the cruise
+  // speed follows the model, not a single traffic number.
+  const base = car.model === 'bike' ? 14 : car.model === 'truck' ? 8 : TRAFFIC.carSpeed;
+  car.speed = rngRange(rng, Math.max(5, base - 3), base);
+  car.cruise = rngRange(rng, Math.max(5, base - 2), base);
   car.lane = rng() < 0.5 ? -1 : 1;
   car.wait = 0;
+  car.weave = car.model === 'bike' ? rngRange(rng, 0.5, 1.5) : 0;
   return car;
 }
 
@@ -42,17 +50,25 @@ export function spawnPed(rng) {
   const street = (rngInt(rng, 1, 9) - 5) * 92;
   const along = rngRange(rng, -420, 420);
   const onXStreet = rng() < 0.5;
+  const archetype = rngPick(rng, PED_ARCHETYPES);
   return {
     x: onXStreet ? street + 11 : along,
     z: onXStreet ? along : street + 11,
     heading: rngRange(rng, 0, Math.PI * 2),
-    speed: rngRange(rng, 0.9, TRAFFIC.pedSpeed),
+    speed: ARCHETYPE_SPEED[archetype] * rngRange(rng, 0.85, 1.15),
     color: rngPick(rng, PED_COLORS),
     state: 'walk',
     stateTimer: rngRange(rng, 2, 9),
     fleeX: 0, fleeZ: 0,
     dead: false,
+    archetype,
+    // Vendors and tourists pause a lot; joggers almost never stop.
+    idleChance: archetype === 'vendor' ? 0.8 : archetype === 'tourist' ? 0.6 : archetype === 'jogger' ? 0.05 : 0.35,
   };
+}
+
+export function pedArchetypeSpeed(archetype) {
+  return ARCHETYPE_SPEED[archetype] || 1.6;
 }
 
 function carAhead(cars, self) {
@@ -89,6 +105,15 @@ export function updateTrafficCar(car, cars, player, dt, city) {
   if (car.wait > 0) { car.wait -= dt; target = 0; }
 
   car.speed += clamp(target - car.speed, -14 * dt, 7 * dt);
+  // r6: bikes weave gently in their lane instead of holding a dead
+  // straight line — they read as alive even from a distance.
+  if (car.weave && car.speed > 4) {
+    const sideX = Math.cos(car.heading);
+    const sideZ = -Math.sin(car.heading);
+    const wobble = Math.sin((car.x + car.z) * 0.08) * car.weave * dt;
+    car.x += sideX * wobble;
+    car.z += sideZ * wobble;
+  }
   // At an intersection the car may turn onto the cross street.
   const onGridX = Math.abs(((car.x + 460) % 92) - 46) > 40;
   const onGridZ = Math.abs(((car.z + 460) % 92) - 46) > 40;
@@ -126,7 +151,7 @@ export function updatePed(ped, threats, dt, city) {
     ped.state = 'walk';
     ped.stateTimer = 3;
   } else if (ped.stateTimer <= 0) {
-    if (ped.state === 'walk' && Math.random() < 0.4) {
+    if (ped.state === 'walk' && Math.random() < (ped.idleChance ?? 0.4)) {
       ped.state = 'idle';
       ped.stateTimer = 2 + Math.random() * 4;
     } else {
@@ -134,6 +159,11 @@ export function updatePed(ped, threats, dt, city) {
       ped.heading = wrapAngle(ped.heading + (Math.random() * 2.4 - 1.2));
       ped.stateTimer = 3 + Math.random() * 6;
     }
+  }
+  // r6: joggers run the sidewalk loop, vendors stay near their corner —
+  // the archetype shapes the walk, not just the speed.
+  if (ped.state === 'walk' && ped.archetype === 'jogger') {
+    ped.speed = Math.max(ped.speed, 3.0);
   }
   if (ped.state === 'walk') {
     ped.x += Math.sin(ped.heading) * ped.speed * dt;

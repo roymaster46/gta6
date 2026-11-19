@@ -14,10 +14,49 @@ export function createLoadout() {
       pistol: { ammo: 24, owned: true },
       smg: { ammo: 0, owned: false },
       shotgun: { ammo: 0, owned: false },
+      // r6: the rifle starts locked behind the gun shop, not in your pocket.
+      rifle: { ammo: 0, owned: false },
     },
     cooldown: 0,
     reloading: false,
+    reloadTimer: 0,
+    // r6: kevlar vest — absorbs damage before health does.
+    armour: 0,
+    maxArmour: 50,
   };
+}
+
+// r6: R reloads the current weapon from a reserve the gun shop sells.
+// A reload takes 1.4 s (rifle 2.0 s) and is interrupted by switching.
+export function startReload(loadout) {
+  if (loadout.current === 'fists' || loadout.reloading) return false;
+  if (!loadout.weapons[loadout.current].owned) return false;
+  loadout.reloading = true;
+  loadout.reloadTimer = loadout.current === 'rifle' ? 2.0 : 1.4;
+  return true;
+}
+
+export function tickReload(loadout, dt) {
+  if (!loadout.reloading) return false;
+  loadout.reloadTimer -= dt;
+  if (loadout.reloadTimer <= 0) {
+    loadout.reloading = false;
+    return true;
+  }
+  return false;
+}
+
+export function setArmour(loadout, amount) {
+  loadout.armour = clamp(amount, 0, loadout.maxArmour);
+  return loadout.armour;
+}
+
+// Armour absorbs damage first: a 20-damage hit with 50 armour costs
+// 20 armour and 0 health. Returns {armour, health} damage split.
+export function armourAbsorb(loadout, damage) {
+  const absorbed = Math.min(loadout.armour, damage);
+  loadout.armour -= absorbed;
+  return { absorbed, healthDamage: damage - absorbed };
 }
 
 export function weaponDef(id) {
@@ -46,13 +85,33 @@ export function buyAmmo(loadout, id, ammo, price, cash) {
 export function canFire(loadout) {
   const def = weaponDef(loadout.current);
   if (loadout.cooldown > 0) return false;
+  if (loadout.reloading) return false;
   if (loadout.current === 'fists') return true;
   return loadout.weapons[loadout.current].ammo > 0;
 }
 
 export function tickLoadout(loadout, dt) {
   loadout.cooldown = Math.max(0, loadout.cooldown - dt);
+  if (loadout.reloading) tickReload(loadout, dt);
   return loadout;
+}
+
+// r6: the rifle can shoot down a police helicopter — the ray check runs
+// against the heli's 3D position using the same along/side math, with the
+// altitude folded into the distance. Returns the damage dealt.
+export function shootHeli(loadout, ox, oz, heading, heli) {
+  if (loadout.current !== 'rifle' || !canFire(loadout)) return { fired: false, damage: 0 };
+  if (!heli || !heli.active) return { fired: false, damage: 0 };
+  const def = weaponDef('rifle');
+  loadout.cooldown = def.rate;
+  loadout.weapons.rifle.ammo -= 1;
+  const dx = heli.x - ox;
+  const dz = heli.z - oz;
+  const along = dx * Math.sin(heading) + dz * Math.cos(heading);
+  const side = Math.abs(dx * Math.cos(heading) - dz * Math.sin(heading));
+  const slant = Math.sqrt(along * along + (heli.y || 42) * (heli.y || 42));
+  if (along < 0 || slant > def.range || side > 6) return { fired: true, damage: 0, missed: true };
+  return { fired: true, damage: def.damage };
 }
 
 // Fire one shot from (ox, oz) along heading. Targets is a list of

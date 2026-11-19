@@ -34,10 +34,34 @@ shop and Vex's safehouse in Hillcrest.
   the nearest car; drive with WASD/arrows, Shift for handbrake, N for nitro
   (top speed ×1.65, 2.6 s boost, 8 s cooldown). Cars take damage, smoke and
   can be wrecked; nitro and health gauges sit on the car card.
+- **Helicopter** — a flyable chopper waits at the Harbor Heliport. Press E
+  to board (taking it costs 2 stars), Space climbs, X descends, WASD flies,
+  E lands and steps out. Fuel burns while the engine runs; refuel at the
+  heliport for $150 (G). The Skyhook mission flies you to the Harborview
+  Tower roof, and the Harbor Heist finale escapes by air.
+- **Gun shop** — Iron Annie Guns in Gunshop Alley sells the Wasp SMG, the
+  Boomstick, the Longshot Rifle, ammo for all of them, kevlar vests (+50
+  armour, absorbs damage before health) and medkits. Press B at the shop:
+  first press opens the catalogue, second press buys the selected item.
+- **Safehouses** — Vex's safehouse in Hillcrest and a second one in
+  Northgate. Press G there to heal for $50, sleep until morning (full heal,
+  wanted cleared) when healthy, or store the car you are driving in the
+  garage (up to 4 cars).
+- **Vigilante work** — press V to take a wanted-criminal job: a red marker
+  shows the target, who flees on foot and shoots back up close. Take them
+  down for $180–$340, paid by the Harbor PD.
+- **Ambient events** — the city keeps living while you work: robberies,
+  police chases, street races, ambulances, brawls and VIP escorts spawn on
+  a timer with an orange marker. Catch the robber, break up the brawl or
+  out-drive the racer (3 overtakes) for a cash reward.
+- **Stamina & stealth** — sprinting drains stamina (walk when it runs dry),
+  and Ctrl crouches: half speed, quiet enough for the Ghost stealth job,
+  where any heat at all blows the mission.
 - **Traffic & pedestrians** — traffic AI follows the streets, brakes for the
-  car ahead and for you standing in the road; pedestrians stroll the sidewalks
-  and flee gunfire, crashes and speeding cars. Hit one while driving and the
-  city notices.
+  car ahead and for you standing in the road; motorbikes weave through
+  traffic and heavy trucks crawl. Pedestrians have archetypes — joggers run,
+  vendors stand at their corners, tourists dawdle — and flee gunfire,
+  crashes and speeding cars. Hit one while driving and the city notices.
 - **Day / night cycle** — a six-minute day: sunny day, dusk, a proper night,
   dawn. At night the sky deepens, windows light up warm yellow, street lamps
   glow, billboards bleed neon, and your headlights cut a cone through the
@@ -46,7 +70,12 @@ shop and Vex's safehouse in Hillcrest.
 - **Wanted 0–5 stars** — car theft, shooting, running over peds and robberies
   raise heat. Foot cops chase and try to arrest you (2.2 s in their grip and
   you are busted); police cars chase and ram; at 4 stars a **police
-  helicopter** joins from above and spotlights you. Cops search your last
+  helicopter** joins from above and spotlights you, and roadblocks seal the
+  avenues ahead. At **5 stars** the response changes completely: **SWAT
+  troopers** who shoot on sight, **FIB interceptors** that box your car in
+  and ram harder, and an **armed police helicopter** firing bursts from
+  above. The Longshot Rifle is the only gun with the range to shoot a
+  police heli down. Cops search your last
   known position when the trail goes cold and give up when the heat drops.
   Heat decays after 14 clean seconds; Quick Coat spray shop clears your
   wanted level for cash.
@@ -62,29 +91,40 @@ shop and Vex's safehouse in Hillcrest.
   police car.
 - **Busted / Wasted** — arrested or killed, you lose money and wake up at the
   safehouse; busted costs 20% of your cash.
-- **Combat** — fists, P9 pistol, Wasp SMG and Boomstick shotgun (1–4 to
-  switch), with ammo, range, fire rate and pellet spread per weapon. Gang
-  members shoot back. Click or F to fire.
-- **Missions (8-story chain)** — 1) First Drop (courier run, 3 drops),
+- **Combat** — fists, P9 pistol, Wasp SMG, Boomstick shotgun and Longshot
+  Rifle (1–5 to switch), with ammo, range, fire rate and pellet spread per
+  weapon, R to reload, and kevlar armour that absorbs damage first. Gang
+  members and SWAT shoot back. Click or F to fire.
+- **Missions (14-story chain)** — 1) First Drop (courier run, 3 drops),
   2) Hot Wheels (steal the Falcon GT, deliver it to the chop shop),
   3) Street Circuit (3 laps, 8 gates a lap against the clock),
   4) Payback (clear the Dockside crew, 4 gang members),
   5) Heat Wave (lose a 3-star chase), 6) Night Shift (3 taxi fares),
   7) Smash & Grab (grab the bank courier case, vanish),
-  8) The Big One (the finale: steal a fast car, take the ferry payroll,
-  lose the whole harbour PD, bring it home — $1,500). Each has a timer, a
-  pulsing beacon in the world and on the minimap, and a cash reward. Start
-  the next job at the South Pier.
+  8) The Big One (steal a fast car, take the ferry payroll,
+  lose the whole harbour PD, bring it home — $1,500),
+  9) Skyhook (fly the heli to the Tower roof),
+  10) Midnight Run (4 timed drops with speed bonuses),
+  11) Ghost (stealth: reach the casino vault with zero heat),
+  12) Turf War (hold the Pier against waves for 120 s),
+  13) Tail Job (tail the courier 45 s without being spotted),
+  14) Harbor Heist (the finale: vault gold, 5-star escape by helicopter —
+  $2,000). Each has a timer, a pulsing beacon in the world and on the
+  minimap, and a cash reward. Start the next job at the South Pier.
 - **Side jobs** — taxi fares for cash (pick up at the cyan marker, drop off
-  for $45 plus tips) and **12 hidden packages** tucked across the city, $120
-  each.
-- **HUD & minimap** — cash, health, wanted stars, weapon + ammo, mission
-  card with timer, car card (health, nitro, speed), score, mission/package/
-  fare progress, and a circular live minimap (player arrow, streets, water,
-  objective beacon, cops, fares).
+  for $45 plus tips), vigilante jobs (press V) and **16 hidden packages**
+  tucked across the city, $120 each.
+- **HUD & minimap** — cash, health, armour, stamina, wanted stars, weapon
+  + ammo, mission card with timer and live step progress, car card (health,
+  nitro, speed) or heli card (altitude, fuel, health), score, mission/
+  package/fare/vigilante/event progress, and a circular live minimap
+  (player arrow, streets, water, objective beacon, cops, SWAT, FIB cars,
+  roadblocks, heli, fares, events).
 - **Save** — progress autosaves every 25 seconds and on mission completion
-  (cash, health, missions, packages, fares, weapons, position, time of day)
-  to localStorage; your best score persists between visits.
+  (cash, health, missions, packages, fares, weapons, armour, shop, safehouse,
+  vigilante, events, heli fuel, position, time of day) to localStorage;
+  your best score persists between visits. Saves from the previous version
+  still load.
 - **Audio** — synthesized only: engine hum that follows your speed, sirens,
   gunshots, pickup blips, cash chimes, mission fanfare and a moody bass line
   while you drive. M mutes.
@@ -95,14 +135,19 @@ shop and Vex's safehouse in Hillcrest.
 | --- | --- |
 | WASD / Arrows | Move on foot / drive |
 | Shift | Sprint on foot / handbrake in a car |
-| Space | Jump |
 | Mouse drag | Orbit camera (wheel zooms) |
 | Click / F | Shoot / punch |
-| E | Enter / exit nearest car, start next mission at the Pier, grab a case |
-| G | Context action: spray shop (clear wanted) / chop shop (sell car) |
+| E | Enter / exit nearest car, board / leave helicopter, start next mission at the Pier, grab a case |
+| G | Context action: spray shop (clear wanted) / chop shop (sell car) / safehouse (heal, sleep, store car) / heliport (refuel) |
 | N | Nitro boost (while driving) |
 | H | Horn |
-| 1 / 2 / 3 / 4 | Fists / Pistol / SMG / Shotgun |
+| 1 / 2 / 3 / 4 / 5 | Fists / Pistol / SMG / Shotgun / Rifle |
+| B | Gun shop (at Iron Annie Guns): open, then buy selected item |
+| V | Vigilante job: take the next wanted criminal |
+| X | Descend in the helicopter |
+| R | Reload current weapon |
+| Ctrl | Crouch / sneak (stealth jobs) |
+| Space | Jump on foot / climb in the helicopter |
 | P / Esc | Pause |
 | M | Mute |
 | Enter | Start / restart |
@@ -129,8 +174,8 @@ Deterministic scenes are staged with `?shot=<name>&seed=20261119`:
 
 - `?shot=day` — daytime in the city, on foot on the Strip
 - `?shot=night` — night drive: headlights, lamp glow, lit windows
-- `?shot=mission` — First Drop mission, beacon and objective marker
-- `?shot=chase` — 3-star police chase in the rain, helicopter overhead
+- `?shot=mission` — Skyhook mission at the Harbor Heliport, flyable helicopter on its pad
+- `?shot=chase` — 5-star police response in the rain: SWAT, FIB interceptor, roadblock, helicopter overhead
 
 The four submission screenshots are `screenshots/`: 1-day, 2-night,
 3-mission, 4-chase.
@@ -140,23 +185,28 @@ The four submission screenshots are `screenshots/`: 1-day, 2-night,
 - `game/index.html`, `game/style.css` — page shell
 - `game/vendor/three.min.js` — vendored Three.js (offline runtime)
 - `game/src/main.js` — boot, loop, state machine, save, shot staging
-- `game/src/world.js` — procedural city: grid, buildings, lamps, parks, landmarks, districts
-- `game/src/player.js` — on-foot movement, jump, health, respawn
-- `game/src/vehicles.js` — car physics, nitro, damage, chop pricing
-- `game/src/traffic.js` — traffic + pedestrian AI
-- `game/src/police.js` — wanted system, cop state machine, helicopter
-- `game/src/missions.js` — 8 story missions + taxi fares + hidden packages
-- `game/src/combat.js` — weapons, ammo, hit math
-- `game/src/render.js` — Three.js scene, day/night, weather, camera
+- `game/src/world.js` — procedural city: grid, buildings, lamps, parks, landmarks, districts, heli pads
+- `game/src/player.js` — on-foot movement, jump, stamina, crouch, health, respawn
+- `game/src/vehicles.js` — car physics, nitro, damage, chop pricing, bikes, trucks, garage upgrades
+- `game/src/traffic.js` — traffic + pedestrian AI, ped archetypes
+- `game/src/police.js` — wanted system, cop state machine, helicopter, roadblocks
+- `game/src/heli.js` — flyable player helicopter + police heli air response
+- `game/src/swat.js` — 5-star SWAT troopers, FIB interceptors, roadblocks
+- `game/src/shops.js` — gun shop, safehouses, vigilante jobs, VIP fares
+- `game/src/events.js` — ambient city events + ped archetype catalogue
+- `game/src/missions.js` — 14 story missions + taxi fares + hidden packages
+- `game/src/missions-extra.js` — the 6 r6 story jobs (Skyhook, Midnight Run, Ghost, Turf War, Tail Job, Harbor Heist)
+- `game/src/combat.js` — weapons, ammo, reload, armour, rifle anti-heli fire, hit math
+- `game/src/render.js` — Three.js scene, day/night, weather, camera, heli/SWAT/roadblock/event meshes
 - `game/src/hud.js` — HUD + circular minimap
-- `game/src/audio.js` — synthesized SFX + music
+- `game/src/audio.js` — synthesized SFX + music, rotor, SWAT siren, shop bell
 - `game/src/input.js` — keyboard / mouse
-- `game/src/save.js` — save / load (localStorage)
+- `game/src/save.js` — save / load v2 (localStorage), v1 saves still load
 - `game/src/config.js` — all tuning numbers
 - `game/src/utils.js` — math, seeded RNG, formatting
 - `main.ts` — entrypoint: copies game/ + screenshots/ to /output, writes dossier.json
 - `serve.ts` — tiny static server for local play
-- `tests/test.mjs` — logic test suite (150 checks, Node only)
+- `tests/test.mjs` — logic test suite (262 checks, Node only)
 - `screenshots/` — 4 real renders of the game
 
 ---

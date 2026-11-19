@@ -82,6 +82,14 @@ export function createHud(canvas) {
     }
     for (const cop of state.cops || []) dot(cop.x, cop.z, '#3b82f6', 3);
     for (const unit of state.copCars || []) dot(unit.car.x, unit.car.z, '#3b82f6', 4);
+    // r6: SWAT reads red, FIB cars read dark red, roadblocks read orange
+    // squares, the vigilante target and live events get their own blips.
+    for (const unit of state.swat || []) dot(unit.x, unit.z, '#ff2244', 4);
+    for (const unit of state.fibCars || []) dot(unit.car.x, unit.car.z, '#991122', 4);
+    for (const block of state.roadblocks || []) dot(block.x, block.z, '#ff7a1a', 4);
+    if (state.playerHeli) dot(state.playerHeli.x, state.playerHeli.z, '#ff5566', 5);
+    if (state.vigilante) dot(state.vigilante.x, state.vigilante.z, '#ff2244', 5);
+    if (state.event) dot(state.event.actorX, state.event.actorZ, '#ff7a1a', 4);
     if (state.fare && !state.fare.pickedUp) dot(state.fare.fromX, state.fare.fromZ, '#22d3ee', 4);
     if (state.fare && state.fare.pickedUp) dot(state.fare.toX, state.fare.toZ, '#22d3ee', 4);
     // Player arrow.
@@ -119,7 +127,8 @@ export function createHud(canvas) {
       const lines = [
         'WASD move  ·  Shift sprint  ·  Space jump  ·  Mouse drag to look',
         'E steal / enter car  ·  F shoot / punch  ·  N nitro  ·  C camera  ·  P pause',
-        '1-4 weapons  ·  G garage  ·  M mute  ·  8 missions, taxi fares, hidden packages',
+        '1-5 weapons  ·  G garage  ·  R reload  ·  B gun shop  ·  V vigilante  ·  Ctrl sneak',
+        '14 missions, heli flights, taxi fares, hidden packages, street events',
       ];
       lines.forEach((l, i) => text(l, W / 2, H * 0.42 + i * 30, 17, '#fff', 'center'));
       text('Press Enter or click to start', W / 2, H * 0.62, 22, '#ffc233', 'center', true);
@@ -139,9 +148,26 @@ export function createHud(canvas) {
     text(formatMoney(state.player.cash), 20, 16, 30, '#7dff8a', 'left', true);
     bar(20, 52, 210, 14, state.player.health / 100, state.player.health > 30 ? '#37d67a' : '#ff5544');
     text(`HP ${Math.ceil(state.player.health)}`, 238, 50, 14, '#fff');
+    // r6: armour sits under health, stamina under that — the two new
+    // survival resources the player actually manages minute to minute.
+    if (state.armour > 0) {
+      bar(20, 70, 210, 8, state.armour / 50, '#7ab8ff');
+      text(`ARM ${Math.ceil(state.armour)}`, 238, 66, 12, '#7ab8ff');
+    }
+    if (state.stamina != null && state.stamina < 100) {
+      bar(20, 82, 210, 6, state.stamina / 100, '#f2c200');
+    }
     const stars = state.wanted.stars;
-    text(starsText(stars), 20, 72, 24, '#ffb347');
-    if (stars > 0) text(`${state.wanted.band} · ${state.wanted.notoriety}% notoriety`, 20, 100, 13, '#ffb347');
+    text(starsText(stars), 20, 92, 24, '#ffb347');
+    if (stars > 0) text(`${state.wanted.band} · ${state.wanted.notoriety}% notoriety`, 20, 120, 13, '#ffb347');
+    // r6: at 5 stars the banner says exactly what is coming — SWAT and
+    // FIB, not just more stars — and it pulses so it cannot be missed.
+    if (state.wanted.fiveStar) {
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 180);
+      ctx.fillStyle = `rgba(255,34,68,${0.25 + pulse * 0.3})`;
+      ctx.fillRect(18, 140, 330, 26);
+      text('FIVE-STAR — SWAT & FIB ON YOU', 28, 146, 15, '#ff5566', 'left', true);
+    }
 
     // Top-centre: clock + district.
     const d = districtAt(state.player.x, state.player.z);
@@ -149,26 +175,49 @@ export function createHud(canvas) {
     text(d.flavor, W / 2, 42, 13, '#c8cdd6', 'center');
     if (state.weather !== 'clear') text(`Weather: ${state.weather}`, W / 2, 62, 13, '#9fc3e8', 'center');
 
-    // Mission panel, top-left under the vitals.
+    // Mission panel, top-left under the vitals. At 5 stars it drops
+    // below the SWAT banner instead of hiding under it.
+    const panelY = state.wanted.fiveStar ? 172 : 128;
     if (state.mission) {
       const m = state.mission;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(18, 128, 330, 86);
+      ctx.fillRect(18, panelY, 330, 86);
       ctx.fillStyle = '#ffc233';
-      ctx.fillRect(18, 128, 4, 86);
-      text(`${m.name}  —  ${formatTime(m.timeLeft)}`, 32, 136, 16, '#ffc233', 'left', true);
-      text(m.step, 32, 160, 14, '#fff');
-      text(`Step ${m.stepIndex + 1}/${m.stepsTotal}  ·  Reward ${formatMoney(m.reward)}`, 32, 184, 13, '#c8cdd6');
+      ctx.fillRect(18, panelY, 4, 86);
+      text(`${m.name}  —  ${formatTime(m.timeLeft)}`, 32, panelY + 8, 16, '#ffc233', 'left', true);
+      text(m.step, 32, panelY + 32, 14, '#fff');
+      text(`Step ${m.stepIndex + 1}/${m.stepsTotal}  ·  Reward ${formatMoney(m.reward)}`, 32, panelY + 56, 13, '#c8cdd6');
+      // r6: live progress for the new step kinds — tail time, turf hold,
+      // speed bonus — so the player can see the mechanic working.
+      if (m.stepKind === 'tail') text(`Tail: ${m.tailTimer || 0}s in the band`, 32, panelY + 74, 12, '#22d3ee');
+      if (m.stepKind === 'defend') text(`Hold: ${m.defendTimer || 0}s · Kills ${m.kills}`, 32, panelY + 74, 12, '#22d3ee');
+      if (m.bonusEarned) text(`Speed bonus banked: ${formatMoney(m.bonusEarned)}`, 32, panelY + 74, 12, '#7dff8a');
     } else if (state.nextMission) {
-      text(`Next job: ${state.nextMission.name} — find the marker`, 20, 132, 14, '#c8cdd6');
+      text(`Next job: ${state.nextMission.name} — find the marker`, 20, panelY + 4, 14, '#c8cdd6');
     }
     if (state.fare) {
-      text(state.fare.pickedUp ? 'Fare aboard — take them to the cyan marker' : 'Fare waiting — pick them up at the cyan marker', 20, 220, 14, '#22d3ee');
+      text(state.fare.pickedUp ? 'Fare aboard — take them to the cyan marker' : 'Fare waiting — pick them up at the cyan marker', 20, panelY + 92, 14, '#22d3ee');
+    }
+    // r6: side-job lines — vigilante target, live city event, shop prompt.
+    if (state.vigilante) {
+      text(`WANTED: take down the criminal — ${formatMoney(state.vigilante.payout)} reward`, 20, panelY + 114, 14, '#ff5566', 'left', true);
+    }
+    if (state.event) {
+      text(`City event: ${state.event.label} — orange marker`, 20, panelY + 134, 14, '#ff7a1a');
+    }
+    if (state.shopPrompt) {
+      text(state.shopPrompt, 20, panelY + 154, 14, '#7dff8a');
     }
 
     // Bottom-left: weapon + ammo, car card.
-    text(`${state.weaponName}  ${state.ammo}`, 20, H - 62, 18, '#fff', 'left', true);
-    if (state.playerCar) {
+    text(`${state.weaponName}  ${state.ammo}${state.reloading ? '  (reloading…)' : ''}`, 20, H - 62, 18, '#fff', 'left', true);
+    if (state.playerHeli) {
+      const h = state.playerHeli;
+      text(`HELI  ${Math.round(h.altitude)} m  ·  Fuel ${Math.round(h.fuel)}%`, 20, H - 92, 15, '#c8cdd6');
+      bar(20, H - 40, 180, 10, h.health / h.maxHealth, '#ff7a1a');
+      bar(210, H - 40, 120, 10, h.fuel / 100, '#f59e0b');
+      text(`${Math.round(Math.abs(h.speed) * 3.6)} km/h`, 340, H - 44, 14, '#fff');
+    } else if (state.playerCar) {
       const car = state.playerCar;
       text(`${car.modelName}`, 20, H - 92, 15, '#c8cdd6');
       bar(20, H - 40, 180, 10, car.health / car.maxHealth, '#4fc3f7');
@@ -177,8 +226,13 @@ export function createHud(canvas) {
     }
 
     // Bottom-right: score + progress.
+    const totalMissions = state.missionsTotal || 14;
+    const totalPackages = state.packagesTotal || 16;
     text(`Score ${state.score.toLocaleString()}`, W - 20, H - 62, 18, '#fff', 'right', true);
-    text(`Missions ${state.missionsDone}/8  ·  Packages ${state.packagesFound}/12  ·  Fares ${state.faresDone}`, W - 20, H - 36, 13, '#c8cdd6', 'right');
+    text(`Missions ${state.missionsDone}/${totalMissions}  ·  Packages ${state.packagesFound}/${totalPackages}  ·  Fares ${state.faresDone}`, W - 20, H - 36, 13, '#c8cdd6', 'right');
+    if (state.vigilanteDone || state.eventsDone) {
+      text(`Vigilante ${state.vigilanteDone || 0}  ·  Events ${state.eventsDone || 0}`, W - 20, H - 16, 12, '#c8cdd6', 'right');
+    }
 
     drawMinimap(state);
 

@@ -153,7 +153,11 @@ export function createRenderer(canvas, city) {
   }
   for (const lm of city.landmarks) {
     const group = new THREE.Group();
-    const color = lm.kind === 'hospital' ? 0xe8e4da : lm.kind === 'bank' ? 0x8a7a5a : lm.kind === 'safehouse' ? 0x6a5a7a : 0x7a6a5a;
+    // r6: the new landmarks read at a glance — green for the gun shop,
+    // gold for the casino, dark steel for the heliport, purple safehouse.
+    const color = lm.kind === 'hospital' ? 0xe8e4da : lm.kind === 'bank' ? 0x8a7a5a
+      : lm.kind === 'safehouse' ? 0x6a5a7a : lm.kind === 'gunshop' ? 0x3a5a3a
+      : lm.kind === 'casino' ? 0xc9a227 : lm.kind === 'heliport' ? 0x2e3440 : 0x7a6a5a;
     const body = box(lm.w, lm.h, lm.d, color);
     body.position.y = lm.h / 2;
     body.castShadow = true;
@@ -207,6 +211,21 @@ export function createRenderer(canvas, city) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 9, 6), new THREE.MeshLambertMaterial({ color: 0x444444 }));
     pole.position.set(bb.x, 4.5, bb.z);
     scene.add(pole);
+  }
+
+  // r6: heli pads — flat H circles on the heliport and the two rooftops
+  // the Skyhook mission uses, so the player can see where to land.
+  const padMeshes = [];
+  for (const pad of city.heliPads || []) {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(pad.radius, 24), new THREE.MeshLambertMaterial({ color: 0x3a4152 }));
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(pad.x, pad.id === 'heliport' ? 0.06 : 0.06, pad.z);
+    scene.add(disc);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(pad.radius - 1.2, pad.radius, 24), new THREE.MeshBasicMaterial({ color: 0xffc233, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(pad.x, 0.08, pad.z);
+    scene.add(ring);
+    padMeshes.push(disc);
   }
 
   // Mission beacon: a glowing column + ring at the current objective.
@@ -265,6 +284,43 @@ export function createRenderer(canvas, city) {
   function buildCarMesh(car) {
     const g = new THREE.Group();
     const model = car;
+    // r6: bikes are narrow with two wheels and a rider lean; trucks are
+    // long with a cargo box. The rest keep the classic sedan silhouette.
+    if (car.model === 'bike') {
+      const frame = box(0.5, 0.5, 2.2, car.color);
+      frame.position.y = 0.6;
+      frame.castShadow = true;
+      g.add(frame);
+      const rider = box(0.45, 0.7, 0.45, 0x2e3440);
+      rider.position.y = 1.15;
+      g.add(rider);
+      for (const wz of [0.9, -0.9]) {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(0, 0.35, wz);
+        g.add(wheel);
+      }
+      g.userData.model = model;
+      return g;
+    }
+    if (car.model === 'truck') {
+      const cab = box(2.2, 1.4, 1.8, car.color);
+      cab.position.set(0, 0.9, 2.2);
+      cab.castShadow = true;
+      g.add(cab);
+      const cargo = box(2.3, 1.8, 4.2, 0x8a8d94);
+      cargo.position.set(0, 1.1, -1.2);
+      cargo.castShadow = true;
+      g.add(cargo);
+      for (const [wx, wz] of [[-1.05, 2.6], [1.05, 2.6], [-1.05, -2.6], [1.05, -2.6]]) {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, 0.42, wz);
+        g.add(wheel);
+      }
+      g.userData.model = model;
+      return g;
+    }
     const bodyM = box(1.9, 0.62, 4.3, car.color);
     bodyM.position.y = 0.55;
     bodyM.castShadow = true;
@@ -333,9 +389,14 @@ export function createRenderer(canvas, city) {
   }
 
   const heliGroup = new THREE.Group();
-  const heliBody = box(2.2, 1.4, 4.6, 0x1e3a8a);
+  // r6: the police heli is painted bright blue-white so it reads against
+  // a dusk sky — a dark heli on a dark sky is invisible in screenshots.
+  const heliBody = box(2.2, 1.4, 4.6, 0x4a7fd8);
   heliBody.position.y = 0;
   heliGroup.add(heliBody);
+  const heliStripe = box(2.25, 0.35, 4.65, 0xf2f2f2);
+  heliStripe.position.y = 0.1;
+  heliGroup.add(heliStripe);
   const rotor = box(7, 0.12, 0.5, 0x222222);
   rotor.position.y = 1.0;
   heliGroup.add(rotor);
@@ -345,6 +406,67 @@ export function createRenderer(canvas, city) {
   heliGroup.add(spot.target);
   heliGroup.visible = false;
   scene.add(heliGroup);
+
+  // r6: the player's flyable helicopter — red-and-white, with a bigger
+  // rotor than the police bird so the two never read the same.
+  const playerHeliGroup = new THREE.Group();
+  const phBody = box(2.4, 1.5, 5.0, 0xc22e2e);
+  phBody.castShadow = true;
+  playerHeliGroup.add(phBody);
+  const phStripe = box(2.45, 0.4, 5.05, 0xf2f2f2);
+  phStripe.position.y = 0.2;
+  playerHeliGroup.add(phStripe);
+  const phRotor = box(8.5, 0.12, 0.5, 0x222222);
+  phRotor.position.y = 1.1;
+  playerHeliGroup.add(phRotor);
+  const phTail = box(0.5, 0.5, 3.0, 0xc22e2e);
+  phTail.position.set(0, 0.3, -3.8);
+  playerHeliGroup.add(phTail);
+  playerHeliGroup.visible = false;
+  scene.add(playerHeliGroup);
+
+  // r6: SWAT troopers — dark armour, helmets, visibly heavier than beat cops.
+  const swatGroups = new Map();
+  function buildSwatMesh() {
+    const g = new THREE.Group();
+    const b = box(0.95, 1.1, 0.5, 0x1a1a1a);
+    b.position.y = 1.0;
+    b.castShadow = true;
+    g.add(b);
+    const vest = box(0.98, 0.6, 0.52, 0x2e4a2e);
+    vest.position.y = 1.05;
+    g.add(vest);
+    const h = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+    h.position.y = 1.8;
+    g.add(h);
+    return g;
+  }
+
+  // r6: roadblock barriers — striped, waist-high, parked across the avenue.
+  const roadblockMeshes = [];
+  function buildRoadblockMesh() {
+    const g = new THREE.Group();
+    for (const sx of [-4, 4]) {
+      const bar = box(7, 1.1, 0.5, 0xf2c200, { emissive: 0x664400, emissiveIntensity: 0.5 });
+      bar.position.set(sx, 0.55, 0);
+      g.add(bar);
+      const stripe = box(7, 0.3, 0.52, 0x111111);
+      stripe.position.set(sx, 0.55, 0);
+      g.add(stripe);
+    }
+    g.visible = false;
+    scene.add(g);
+    roadblockMeshes.push(g);
+    return g;
+  }
+
+  // r6: ambient event markers — a pulsing orange diamond over the action.
+  const eventMarker = new THREE.Mesh(new THREE.OctahedronGeometry(1.4), new THREE.MeshBasicMaterial({ color: 0xff7a1a }));
+  eventMarker.visible = false;
+  scene.add(eventMarker);
+  const vigilanteMarker = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), new THREE.MeshBasicMaterial({ color: 0xff2244 }));
+  vigilanteMarker.visible = false;
+  scene.add(vigilanteMarker);
 
   // Headlight cone for night driving.
   const headlight = new THREE.SpotLight(0xfff2b0, 0, 55, 0.5, 0.45);
@@ -420,6 +542,11 @@ export function createRenderer(canvas, city) {
     scene, camera, renderer,
     draw(state) {
       const { player, playerCar, traffic, cops, copCars, heli, dayTime, weather, camYaw, camPitch, camDist, objective, packages, time } = state;
+      const playerHeli = state.playerHeli;
+      const swat = state.swat || [];
+      const roadblocks = state.roadblocks || [];
+      const events = state.events || [];
+      const vigilante = state.vigilante || null;
       applyTimeOfDay(dayTime, weather);
       if (rain.visible) {
         const pos = rainGeo.attributes.position;
@@ -433,10 +560,10 @@ export function createRenderer(canvas, city) {
       }
 
       // Player / car focus for the camera.
-      const focus = playerCar || player;
+      const focus = playerHeli && playerHeli.occupied ? playerHeli : playerCar || player;
       playerGroup.position.set(player.x, player.y, player.z);
       playerGroup.rotation.y = player.heading;
-      playerGroup.visible = !playerCar;
+      playerGroup.visible = !playerCar && !(playerHeli && playerHeli.occupied);
       if (playerCar) {
         headlight.intensity = nightFactor > 0.4 ? 2.2 : 0;
         headlight.position.set(playerCar.x, 1.2, playerCar.z);
@@ -455,6 +582,46 @@ export function createRenderer(canvas, city) {
         g.position.set(cop.x, 0, cop.z);
         g.rotation.y = cop.heading;
       });
+      // r6: SWAT troopers, FIB cars (dark interceptors reuse the car mesh),
+      // roadblocks, the player's heli and the live event markers.
+      swat.forEach((unit, i) => {
+        let g = swatGroups.get(i);
+        if (!g) { g = buildSwatMesh(); swatGroups.set(i, g); scene.add(g); }
+        g.position.set(unit.x, 0, unit.z);
+        g.rotation.y = unit.heading;
+        g.visible = !unit.dead && unit.state !== 'gone';
+      });
+      for (const unit of state.fibCars || []) syncCarMesh(unit.car);
+      roadblocks.forEach((block, i) => {
+        let g = roadblockMeshes[i];
+        if (!g) g = buildRoadblockMesh();
+        g.position.set(block.x, 0, block.z);
+        g.rotation.y = block.heading;
+        g.visible = !!block.active;
+      });
+      if (playerHeli) {
+        playerHeliGroup.visible = true;
+        playerHeliGroup.position.set(playerHeli.x, playerHeli.y, playerHeli.z);
+        playerHeliGroup.rotation.y = playerHeli.heading;
+        phRotor.rotation.y = (time || 0) * (playerHeli.rotor > 0.1 ? 26 : 0);
+      } else {
+        playerHeliGroup.visible = false;
+      }
+      if (events.length > 0) {
+        const ev = events[0];
+        eventMarker.visible = true;
+        eventMarker.position.set(ev.actorX, 6 + Math.sin((time || 0) * 2.4) * 0.8, ev.actorZ);
+        eventMarker.rotation.y = (time || 0) * 1.6;
+      } else {
+        eventMarker.visible = false;
+      }
+      if (vigilante) {
+        vigilanteMarker.visible = true;
+        vigilanteMarker.position.set(vigilante.x, 5 + Math.sin((time || 0) * 3) * 0.6, vigilante.z);
+        vigilanteMarker.rotation.y = (time || 0) * 2;
+      } else {
+        vigilanteMarker.visible = false;
+      }
 
       if (heli && heli.active) {
         heliGroup.visible = true;
@@ -484,13 +651,15 @@ export function createRenderer(canvas, city) {
         if (m) m.visible = !p.taken;
       });
 
-      // Third-person camera: orbit behind the focus point.
+      // Third-person camera: orbit behind the focus point. In the heli
+      // the camera climbs with the aircraft instead of staying at street level.
+      const focusY = (playerHeli && playerHeli.occupied) ? playerHeli.y : (playerCar ? 1.2 : 1.8);
       const cy = Math.sin(camPitch) * camDist;
       const ch = Math.cos(camPitch) * camDist;
       const cx = focus.x - Math.sin(camYaw) * ch;
       const cz = focus.z - Math.cos(camYaw) * ch;
-      camera.position.set(cx, (playerCar ? 1.2 : 1.8) + cy, cz);
-      camera.lookAt(focus.x, (playerCar ? 1.4 : 1.6) + (player ? player.y : 0), focus.z);
+      camera.position.set(cx, focusY + cy, cz);
+      camera.lookAt(focus.x, focusY + 0.4 + (player ? player.y : 0), focus.z);
       renderer.render(scene, camera);
     },
   };

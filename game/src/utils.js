@@ -134,6 +134,34 @@ export function moveToward(v, target, maxDelta) {
   return v;
 }
 
+// r6 helpers: progress bars, money-per-minute, and a seeded pick that
+// reads like English at the call site.
+export function progressBar(frac, width) {
+  const w = width || 10;
+  const filled = Math.round(clamp(frac, 0, 1) * w);
+  return '[' + '#'.repeat(filled) + '-'.repeat(w - filled) + ']';
+}
+
+export function formatDuration(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+export function pickWeighted(rng, entries) {
+  const total = entries.reduce((sum, e) => sum + (e.weight || 1), 0);
+  let roll = rng() * total;
+  for (const e of entries) {
+    roll -= e.weight || 1;
+    if (roll <= 0) return e.value;
+  }
+  return entries[entries.length - 1].value;
+}
+
+export function angleTo(ax, az, bx, bz) {
+  return Math.atan2(bx - ax, bz - az);
+}
+
 export function deepEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }

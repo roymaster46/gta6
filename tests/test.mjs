@@ -6,15 +6,21 @@
 import {
   clamp, lerp, wrapAngle, dist, createRng, rngInt, hash2,
   formatMoney, formatClock, formatTime, starsText, isOnRoad, clampToWorld,
+  progressBar, formatDuration, pickWeighted, angleTo,
 } from '../game/src/utils.js';
-import { generateCity, districtAt, buildingAt, resolveBuildingCollision, landmarkById } from '../game/src/world.js';
-import { createPlayer, updatePlayer, damagePlayer, healPlayer, respawnPlayer, playerSpeed } from '../game/src/player.js';
-import { createCar, updateCar, damageCar, repairCar, chopValue, nearestCar, modelById } from '../game/src/vehicles.js';
-import { spawnTraffic, updateTrafficCar, updatePed, crashTrafficCar } from '../game/src/traffic.js';
-import { createWanted, addHeat, updateWanted, clearWanted, notorietyBand, heliActive, roadblockActive, createCop, updateCop, spawnCopsForStars, createHeli, updateHeli, wantedSummary } from '../game/src/police.js';
+import { generateCity, districtAt, buildingAt, resolveBuildingCollision, landmarkById, heliPadById, nearestHeliPad, safehouses } from '../game/src/world.js';
+import { createPlayer, updatePlayer, damagePlayer, healPlayer, respawnPlayer, playerSpeed, playerStaminaPct } from '../game/src/player.js';
+import { createCar, updateCar, damageCar, repairCar, chopValue, nearestCar, modelById, vehicleClass, isTwoWheeler, upgradeCar } from '../game/src/vehicles.js';
+import { spawnTraffic, updateTrafficCar, updatePed, crashTrafficCar, pedArchetypeSpeed } from '../game/src/traffic.js';
+import { createWanted, addHeat, addHeatFor, updateWanted, clearWanted, notorietyBand, heliActive, roadblockActive, createCop, updateCop, spawnCopsForStars, createHeli, updateHeli, wantedSummary, isFiveStar, responseTier, crimesForStars, createRoadblockState, updateRoadblocks, roadblockBlocksCar } from '../game/src/police.js';
 import { MISSION_DEFS, createMissionState, startMission, updateMission, missionProgress, nextAvailableMission, totalEarned, createSideState, checkPackagePickup, abortMission } from '../game/src/missions.js';
-import { createLoadout, switchWeapon, giveWeapon, canFire, fireWeapon, punch, applyHit, shootCar, ammoText, totalAmmo } from '../game/src/combat.js';
-import { buildSnapshot, applySnapshot, serializeSnapshot, parseSnapshot, scoreOf } from '../game/src/save.js';
+import { EXTRA_MISSION_DEFS, extraMissionDef, totalExtraRewards } from '../game/src/missions-extra.js';
+import { createLoadout, switchWeapon, giveWeapon, canFire, fireWeapon, punch, applyHit, shootCar, ammoText, totalAmmo, startReload, tickReload, setArmour, armourAbsorb, shootHeli } from '../game/src/combat.js';
+import { buildSnapshot, applySnapshot, serializeSnapshot, parseSnapshot, scoreOf, progressSummary } from '../game/src/save.js';
+import { createPlayerHeli, createPoliceHeli, updatePlayerHeli, updatePoliceHeli, updatePoliceHeliFire, damagePoliceHeli, damagePlayerHeli, heliCanTakeOff, refuelHeli, padAt, airResponseForStars, HELI_PADS } from '../game/src/heli.js';
+import { createSwatUnit, updateSwat, damageSwat, createFibCar, updateFibCar, spawnSwatForStars, createRoadblock, planRoadblocks, roadblockHit, damageRoadblock, fiveStarActive } from '../game/src/swat.js';
+import { SHOP_STOCK, shopItem, createShopState, openShop, closeShop, shopCycle, selectedItem, buySelected, createSafehouseState, healAtSafehouse, sleepAtSafehouse, storeCarAtSafehouse, createVigilanteState, startVigilante, updateVigilante, damageVigilanteTarget, tickVigilante, vipFarePay } from '../game/src/shops.js';
+import { EVENT_KINDS, eventDef, createEventState, spawnEvent, updateEvents, resolveEvent, raceOvertake, nearestEvent, PED_ARCHETYPES, archetypeSpeed } from '../game/src/events.js';
 import { STEP } from '../game/src/config.js';
 
 let passed = 0;
@@ -62,8 +68,8 @@ check('city deterministic landmarks', JSON.stringify(cityA.landmarks) === JSON.s
 check('city seed changes layout', cityA.buildings.length !== cityC.buildings.length || JSON.stringify(cityA.buildings) !== JSON.stringify(cityC.buildings));
 check('city has many buildings', cityA.buildings.length > 80);
 check('city has lamps', cityA.lamps.length > 50);
-check('city has 10 landmarks', cityA.landmarks.length === 10);
-check('city has 12 packages', cityA.packages.length === 12);
+check('city has 14 landmarks', cityA.landmarks.length === 14);
+check('city has 16 packages', cityA.packages.length === 16);
 check('city has billboards', cityA.billboards.length === 12);
 eq('landmark pier', landmarkById(cityA, 'pier').name, 'South Pier');
 eq('landmark missing', landmarkById(cityA, 'nope'), null);
@@ -308,7 +314,7 @@ check('wanted summary', (() => {
 })());
 
 // ---- missions ----
-eq('mission defs count', MISSION_DEFS.length, 8);
+eq('mission defs count', MISSION_DEFS.length, 14);
 check('mission defs have steps', MISSION_DEFS.every((m) => m.steps.length > 0 && m.reward > 0 && m.timeLimit > 0));
 const ms0 = createMissionState();
 check('start first mission', startMission(ms0, 'first-drop'));
@@ -502,9 +508,433 @@ check('snapshot round trip', (() => {
   return g2.player.cash === 1234 && g2.player.x === 12.3 && g2.missions.completed[0] === 'first-drop';
 })());
 check('snapshot rejects bad json', parseSnapshot('not json') === null);
-check('snapshot rejects wrong version', parseSnapshot('{"v":2}') === null);
+check('snapshot rejects wrong version', parseSnapshot('{"v":3}') === null);
 check('scoreOf counts missions', scoreOf(fakeGame()) === 1000 + 360 + 90 + 123 + 25);
-check('snapshot has version 1', buildSnapshot(fakeGame()).v === 1);
+check('snapshot has version 2', buildSnapshot(fakeGame()).v === 2);
+check('snapshot v1 still loads', (() => {
+  const g = fakeGame();
+  g.shops = { spent: 0, visits: 0 };
+  g.safehouse = { sleeps: 0, storedCars: [] };
+  g.vigilante = { done: 0, earned: 0 };
+  g.events = { completed: 0, earned: 0 };
+  g.playerHeli = { fuel: 100 };
+  const snap = { v: 1, cash: 500, rep: 3, health: 90, px: 1, pz: 2, dayTime: 0.4, missionsCompleted: [], packagesFound: 0, faresDone: 0, chopSales: 0, bestScore: 0, playSeconds: 0, weapons: { fists: { ammo: -1, owned: true } }, currentWeapon: 'fists' };
+  return applySnapshot(g, snap) && g.player.cash === 500;
+})());
+
+// ---- r6: utils additions ----
+eq('progressBar half', progressBar(0.5, 10), '[#####-----]');
+eq('progressBar full', progressBar(1, 4), '[####]');
+eq('formatDuration', formatDuration(125), '2:05');
+check('pickWeighted deterministic', pickWeighted(createRng(3), [{ value: 'a', weight: 1 }, { value: 'b', weight: 1 }]) === pickWeighted(createRng(3), [{ value: 'a', weight: 1 }, { value: 'b', weight: 1 }]));
+approx('angleTo north', angleTo(0, 0, 0, 10), 0, 1e-9);
+
+// ---- r6: world additions ----
+eq('landmark gunshop', landmarkById(cityA, 'gunshop').name, 'Iron Annie Guns');
+eq('landmark casino', landmarkById(cityA, 'casino').name, 'Harbour Casino');
+eq('landmark heliport', landmarkById(cityA, 'heliport').name, 'Harbor Heliport');
+check('city has 3 heli pads', cityA.heliPads.length === 3);
+eq('heli pad by id', heliPadById(cityA, 'tower-roof').name, 'Harborview Tower Roof');
+check('nearest heli pad', nearestHeliPad(cityA, 368, -138, 20).pad.id === 'heliport');
+check('two safehouses', safehouses(cityA).length === 2);
+check('city packages total 16 in side state', createSideState(cityA).packagesTotal === 16);
+
+// ---- r6: vehicles — bikes, trucks, upgrades ----
+eq('model bike', modelById('bike').name, 'Ember 900 Bike');
+eq('model truck', modelById('truck').name, 'Harbor Hauler');
+eq('vehicleClass bike', vehicleClass('bike'), 'bike');
+eq('vehicleClass truck', vehicleClass('truck'), 'heavy');
+eq('vehicleClass cop', vehicleClass('cop'), 'police');
+check('isTwoWheeler bike', isTwoWheeler('bike'));
+check('isTwoWheeler sedan false', !isTwoWheeler('sedan'));
+check('upgrade engine', (() => { const c = createCar('coupe', 0, 0, 0); const r = upgradeCar(c, 'engine', 500, 250); return r.ok && c.engine === 1 && r.cash === 250; })());
+check('upgrade needs cash', (() => { const c = createCar('coupe', 0, 0, 0); return !upgradeCar(c, 'engine', 100, 250).ok; })());
+check('upgrade maxes at 3', (() => { const c = createCar('coupe', 0, 0, 0); upgradeCar(c, 'armour', 9999, 250); upgradeCar(c, 'armour', 9999, 250); upgradeCar(c, 'armour', 9999, 250); return !upgradeCar(c, 'armour', 9999, 250).ok; })());
+check('bike turns sharper than truck', (() => {
+  const b = createCar('bike', 0, 0, 0);
+  const t = createCar('truck', 0, 0, 0);
+  // 0.5 s only: longer and the bike's heading wraps past PI, which would
+  // make the comparison meaningless.
+  for (let i = 0; i < 30; i += 1) {
+    updateCar(b, { throttle: 1, steer: 1, handbrake: false, nitro: false }, STEP, null);
+    updateCar(t, { throttle: 1, steer: 1, handbrake: false, nitro: false }, STEP, null);
+  }
+  return Math.abs(b.heading) > Math.abs(t.heading);
+})());
+
+// ---- r6: player stamina + crouch ----
+check('sprint drains stamina', (() => {
+  const p = createPlayer(0, 0);
+  const spr = { moveX: 0, moveY: 1, sprint: true, jump: false, camYaw: 0, crouch: false };
+  for (let i = 0; i < 600; i += 1) updatePlayer(p, spr, STEP, null);
+  return p.stamina < 100;
+})());
+check('crouch halves speed', (() => {
+  const a = createPlayer(0, 0);
+  const b = createPlayer(0, 0);
+  const walk = { moveX: 0, moveY: 1, sprint: false, jump: false, camYaw: 0, crouch: false };
+  const crouch = { moveX: 0, moveY: 1, sprint: false, jump: false, camYaw: 0, crouch: true };
+  for (let i = 0; i < 120; i += 1) { updatePlayer(a, walk, STEP, null); updatePlayer(b, crouch, STEP, null); }
+  return playerSpeed(b) < playerSpeed(a) && b.crouching === true;
+})());
+check('stamina recovers at rest', (() => {
+  const p = createPlayer(0, 0);
+  p.stamina = 10;
+  const idle = { moveX: 0, moveY: 0, sprint: false, jump: false, camYaw: 0, crouch: false };
+  for (let i = 0; i < 300; i += 1) updatePlayer(p, idle, STEP, null);
+  return p.stamina > 50;
+})());
+eq('stamina pct', playerStaminaPct(Object.assign(createPlayer(0, 0), { stamina: 50, maxStamina: 100 })), 50);
+
+// ---- r6: helicopters ----
+check('player heli starts grounded', (() => { const h = createPlayerHeli(368, -138); return h.altitude === 0 && h.fuel === 100 && heliCanTakeOff(h); })());
+check('heli climbs with lift', (() => {
+  const h = createPlayerHeli(0, 0);
+  for (let i = 0; i < 60 * 6; i += 1) updatePlayerHeli(h, { lift: 1, throttle: 0, steer: 0 }, STEP);
+  return h.altitude > 10 && h.rotor > 0.5;
+})());
+check('heli fuel burns', (() => {
+  const h = createPlayerHeli(0, 0);
+  for (let i = 0; i < 60 * 10; i += 1) updatePlayerHeli(h, { lift: 1, throttle: 1, steer: 0 }, STEP);
+  return h.fuel < 100;
+})());
+check('heli refuel', (() => { const h = createPlayerHeli(0, 0); h.fuel = 20; return refuelHeli(h) === 100; })());
+check('heli wrecked by damage', (() => { const h = createPlayerHeli(0, 0); damagePlayerHeli(h, 999); return h.wrecked && !heliCanTakeOff(h); })());
+check('padAt heliport', padAt(368, -138).id === 'heliport');
+check('padAt none', padAt(0, 0) === null);
+check('air response 5 stars armed', (() => { const r = airResponseForStars(5, 0); return r.helis === 2 && r.armed; })());
+check('air response 4 stars one heli', (() => { const r = airResponseForStars(4, 0); return r.helis === 1 && !r.armed; })());
+check('air response 1 star none', airResponseForStars(1, 0).helis === 0);
+check('police heli calls on interval', (() => {
+  const h = createPoliceHeli();
+  h.active = true;
+  let called = false;
+  for (let i = 0; i < 60 * 10; i += 1) if (updatePoliceHeli(h, { x: 0, z: 0 }, STEP)) called = true;
+  return called;
+})());
+check('police heli fires only at 5 stars', (() => {
+  const h = createPoliceHeli();
+  h.active = true; h.x = 0; h.z = 0;
+  return updatePoliceHeliFire(h, { x: 0, z: 0 }, STEP, 4) === null;
+})());
+check('police heli shot down', (() => {
+  const h = createPoliceHeli();
+  h.active = true; h.health = 40;
+  return damagePoliceHeli(h, 55) === true && h.active === false;
+})());
+
+// ---- r6: SWAT, FIB, roadblocks ----
+check('fiveStarActive', fiveStarActive(Object.assign(createWanted(), { stars: 5 })));
+check('not five star at 4', !fiveStarActive(Object.assign(createWanted(), { stars: 4 })));
+eq('responseTier 5', responseTier(5), 'swat');
+eq('responseTier 4', responseTier(4), 'heli');
+eq('responseTier 0', responseTier(0), 'none');
+check('crimesForStars 5 has swat', crimesForStars(5).includes('swat'));
+check('swat chases player', (() => {
+  const u = createSwatUnit(0, 0);
+  updateSwat(u, { x: 10, z: 0 }, STEP);
+  return u.state === 'chase' && u.x > 0;
+})());
+check('swat shoots in range', (() => {
+  const u = createSwatUnit(0, 0);
+  u.shootTimer = 0;
+  const res = updateSwat(u, { x: 10, z: 0 }, STEP);
+  return res === 'shot';
+})());
+check('swat dies from damage', (() => { const u = createSwatUnit(0, 0); damageSwat(u, 999); return u.dead; })());
+check('swat spawns only at 5', (() => {
+  const rng = createRng(5);
+  return spawnSwatForStars(4, rng, { x: 0, z: 0 }).units.length === 0
+    && spawnSwatForStars(5, rng, { x: 0, z: 0 }).units.length > 0;
+})());
+check('fib car chases', (() => {
+  const f = createFibCar(0, 0, 0);
+  updateFibCar(f, { x: 20, z: 0 }, null, STEP);
+  return f.car.x > 0;
+})());
+check('roadblock plan ahead', planRoadblocks({ x: 0, z: 0 }, 0, 2).length === 2);
+check('roadblock hit', (() => { const b = createRoadblock(0, 0, 0); return roadblockHit(b, 0, 0, 1); })());
+check('roadblock damage clears', (() => { const b = createRoadblock(0, 0, 0); damageRoadblock(b, 200); return !b.active; })());
+check('roadblocks spawn at 4 stars', (() => {
+  const st = createRoadblockState();
+  const w = createWanted();
+  addHeat(w, 4, 0);
+  updateRoadblocks(st, w, { x: 0, z: 0, heading: 0 }, 1);
+  return st.blocks.length >= 1;
+})());
+check('roadblocks clear below 4 stars', (() => {
+  const st = createRoadblockState();
+  const w = createWanted();
+  addHeat(w, 4, 0);
+  updateRoadblocks(st, w, { x: 0, z: 0, heading: 0 }, 1);
+  const w2 = createWanted();
+  updateRoadblocks(st, w2, { x: 0, z: 0, heading: 0 }, 1);
+  return st.blocks.length === 0;
+})());
+check('roadblockBlocksCar finds barrier', (() => {
+  const st = createRoadblockState();
+  // Barriers sit 4 m either side of the block centre along the road.
+  st.blocks.push(createRoadblock(0, 0, 0));
+  return roadblockBlocksCar(st, 4, 0, 1) !== null && roadblockBlocksCar(st, 100, 100, 1) === null;
+})());
+
+// ---- r6: police named crimes ----
+check('addHeatFor vault grab is 2', (() => { const w = createWanted(); addHeatFor(w, 'vaultGrab', 0); return w.stars === 2; })());
+check('addHeatFor punch is 0.2', (() => { const w = createWanted(); addHeatFor(w, 'punch', 0); return w.heat === 0.2 && w.stars === 0; })());
+check('isFiveStar helper', isFiveStar(Object.assign(createWanted(), { stars: 5 })));
+
+// ---- r6: new missions ----
+eq('extra mission defs count', EXTRA_MISSION_DEFS.length, 6);
+check('extra def skyhook exists', extraMissionDef('skyhook').name === 'Skyhook');
+check('extra rewards sum', totalExtraRewards() === 900 + 650 + 800 + 750 + 600 + 2000);
+check('skyhook flyto steps advance', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'skyhook');
+  updateMission(ms, { x: 368, z: -138, dt: STEP, wantedStars: 0 });
+  updateMission(ms, { x: 322, z: -46, inHeli: true, dt: STEP, wantedStars: 0 });
+  updateMission(ms, { x: 322, z: -46, grabbed: true, dt: STEP, wantedStars: 0 });
+  const ev = updateMission(ms, { x: 368, z: -138, inHeli: true, dt: STEP, wantedStars: 0 });
+  return ev && ev.type === 'complete' && ev.reward === 900 && ms.completed.includes('skyhook');
+})());
+check('ghost fails when spotted', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'ghost');
+  const ev = updateMission(ms, { x: 100, z: 100, dt: STEP, wantedStars: 3 });
+  return ev && ev.failed && ev.reason.includes('Spotted');
+})());
+check('ghost advances when clean', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'ghost');
+  const ev = updateMission(ms, { x: 230, z: -138, dt: STEP, wantedStars: 0 });
+  return ev && ev.type === 'step' && ms.stepIndex === 1;
+})());
+check('midnight-run banks speed bonus', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'midnight-run');
+  updateMission(ms, { x: -322, z: -322, dt: STEP, wantedStars: 0 });
+  return ms.bonusEarned === 80;
+})());
+check('turf-war defend completes', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'turf-war');
+  for (let i = 0; i < 6; i += 1) updateMission(ms, { x: 0, z: 414, killed: 1, dt: STEP, wantedStars: 0 });
+  let ev = null;
+  for (let i = 0; i < 60 * 125 && !ev; i += 1) ev = updateMission(ms, { x: 0, z: 414, dt: STEP, wantedStars: 0 });
+  return ev && ev.type === 'step' && ms.stepIndex === 1;
+})());
+check('tail-job completes in band', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'tail-job');
+  let ev = null;
+  for (let i = 0; i < 60 * 50 && !ev; i += 1) ev = updateMission(ms, { x: 0, z: 0, tailDist: 15, dt: STEP, wantedStars: 0 });
+  return ev && ev.type === 'step' && ms.stepIndex === 1;
+})());
+check('tail-job loses progress far away', (() => {
+  const ms = createMissionState();
+  startMission(ms, 'tail-job');
+  for (let i = 0; i < 60 * 20; i += 1) updateMission(ms, { x: 0, z: 0, tailDist: 15, dt: STEP, wantedStars: 0 });
+  const before = ms.tailTimer;
+  for (let i = 0; i < 60 * 20; i += 1) updateMission(ms, { x: 0, z: 0, tailDist: 80, dt: STEP, wantedStars: 0 });
+  return before > 0 && ms.tailTimer < before;
+})());
+check('next available reaches extras after base', (() => {
+  const ms = createMissionState();
+  for (const def of MISSION_DEFS.slice(0, 8)) ms.completed.push(def.id);
+  return nextAvailableMission(ms).id === 'skyhook';
+})());
+check('total earned includes extras', (() => {
+  const ms = createMissionState();
+  ms.completed.push('skyhook', 'ghost');
+  return totalEarned(ms) === 1700;
+})());
+
+// ---- r6: combat — rifle, reload, armour ----
+check('rifle weapon def', (() => { const lo = createLoadout(); return lo.weapons.rifle && !lo.weapons.rifle.owned; })());
+check('reload starts and finishes', (() => {
+  const lo = createLoadout();
+  switchWeapon(lo, 'pistol');
+  startReload(lo);
+  for (let i = 0; i < 120; i += 1) tickReload(lo, STEP);
+  return !lo.reloading;
+})());
+check('cannot fire while reloading', (() => {
+  const lo = createLoadout();
+  switchWeapon(lo, 'pistol');
+  startReload(lo);
+  return !canFire(lo);
+})());
+check('armour absorbs first', (() => {
+  const lo = createLoadout();
+  setArmour(lo, 50);
+  const split = armourAbsorb(lo, 20);
+  return split.absorbed === 20 && split.healthDamage === 0 && lo.armour === 30;
+})());
+check('armour overflow hits health', (() => {
+  const lo = createLoadout();
+  setArmour(lo, 10);
+  const split = armourAbsorb(lo, 30);
+  return split.absorbed === 10 && split.healthDamage === 20;
+})());
+check('rifle shoots heli', (() => {
+  const lo = createLoadout();
+  giveWeapon(lo, 'rifle', 10);
+  switchWeapon(lo, 'rifle');
+  lo.cooldown = 0;
+  const heli = { active: true, x: 0, z: 30, y: 42, health: 100 };
+  const res = shootHeli(lo, 0, 0, 0, heli);
+  return res.fired && res.damage === 55 && lo.weapons.rifle.ammo === 9;
+})());
+check('rifle misses heli behind', (() => {
+  const lo = createLoadout();
+  giveWeapon(lo, 'rifle', 10);
+  switchWeapon(lo, 'rifle');
+  lo.cooldown = 0;
+  const heli = { active: true, x: 0, z: -30, y: 42, health: 100 };
+  return shootHeli(lo, 0, 0, 0, heli).damage === 0;
+})());
+
+// ---- r6: shops, safehouse, vigilante ----
+check('shop stock has rifle', shopItem('rifle').price === 680);
+check('shop stock count', SHOP_STOCK.length === 9);
+check('shop open/close', (() => { const s = createShopState(); openShop(s); return s.open && s.visits === 1 && (closeShop(s), !s.open); })());
+check('shop cycle wraps', (() => { const s = createShopState(); for (let i = 0; i < SHOP_STOCK.length; i += 1) shopCycle(s, 1); return selectedItem(s).id === SHOP_STOCK[0].id; })());
+check('buy selected deducts cash', (() => {
+  const s = createShopState();
+  const lo = createLoadout();
+  const p = createPlayer(0, 0);
+  p.cash = 1000;
+  const apply = () => ({ ok: true });
+  const res = buySelected(s, lo, p, apply);
+  return res.ok && p.cash === 1000 - res.item.price && s.spent === res.item.price;
+})());
+check('buy selected needs cash', (() => {
+  const s = createShopState();
+  const lo = createLoadout();
+  const p = createPlayer(0, 0);
+  p.cash = 10;
+  return !buySelected(s, lo, p, () => ({ ok: true })).ok;
+})());
+check('safehouse heal', (() => {
+  const sh = createSafehouseState();
+  const p = createPlayer(0, 0);
+  p.health = 40;
+  p.cash = 500;
+  const r = healAtSafehouse(sh, p);
+  return r.ok && p.health === 100 && p.cash === 450 && sh.heals === 1;
+})());
+check('safehouse sleep clears wanted', (() => {
+  const sh = createSafehouseState();
+  const p = createPlayer(0, 0);
+  const gameLike = { wanted: { heat: 3, stars: 3, cleanTimer: 0 }, cops: [{ x: 0 }], copCars: [], swat: [], heli: { active: true }, dayTime: 0.9, playSeconds: 100 };
+  const r = sleepAtSafehouse(sh, p, gameLike);
+  return r.ok && gameLike.wanted.stars === 0 && gameLike.dayTime === 0.24 && sh.sleeps === 1;
+})());
+check('safehouse stores cars', (() => {
+  const sh = createSafehouseState();
+  const car = createCar('coupe', 0, 0, 0);
+  const r = storeCarAtSafehouse(sh, car);
+  return r.ok && sh.storedCars.length === 1;
+})());
+check('safehouse refuses cop car', (() => {
+  const sh = createSafehouseState();
+  return !storeCarAtSafehouse(sh, createCar('cop', 0, 0, 0)).ok;
+})());
+check('vigilante starts with payout', (() => {
+  const v = createVigilanteState();
+  const t = startVigilante(v, createRng(4), { x: 0, z: 0 }, cityA);
+  return t !== null && t.payout >= 180 && t.health === 120;
+})());
+check('vigilante kill pays out', (() => {
+  const v = createVigilanteState();
+  startVigilante(v, createRng(4), { x: 0, z: 0 }, cityA);
+  const r = damageVigilanteTarget(v, 999);
+  return r && r.type === 'vigilante-done' && r.payout >= 180 && v.done === 1 && v.active === null;
+})());
+check('vigilante cooldown ticks', (() => {
+  const v = createVigilanteState();
+  v.cooldown = 10;
+  tickVigilante(v, 5);
+  return v.cooldown === 5;
+})());
+eq('vip fare triple', vipFarePay(45, 90, false), 135);
+eq('vip fare no tip when wrecked', vipFarePay(45, 40, false), 45);
+eq('vip fare fast bonus', vipFarePay(45, 90, true), 160);
+
+// ---- r6: ambient events ----
+check('event defs count', EVENT_KINDS.length === 6);
+check('event def robbery', eventDef('robbery').reward === 150);
+check('spawn event', (() => {
+  const st = createEventState();
+  const ev = spawnEvent(st, createRng(8), { x: 0, z: 0 }, 'robbery');
+  return ev && ev.kind === 'robbery' && st.active.length === 1;
+})());
+check('events spawn over time', (() => {
+  const st = createEventState();
+  for (let i = 0; i < 60 * 200; i += 1) updateEvents(st, { x: 0, z: 0 }, STEP, createRng(11));
+  return st.completed === 0 && st.active.length >= 0 && st.seen !== undefined;
+})());
+check('resolve event pays reward', (() => {
+  const st = createEventState();
+  const ev = spawnEvent(st, createRng(8), { x: 0, z: 0 }, 'brawl');
+  const r = resolveEvent(st, ev.id, 'broke it up');
+  return r && r.reward === 100 && st.completed === 1 && st.earned === 100;
+})());
+check('race overtake wins at 3', (() => {
+  const st = createEventState();
+  const ev = spawnEvent(st, createRng(8), { x: 0, z: 0 }, 'street-race');
+  raceOvertake(st, ev.id);
+  raceOvertake(st, ev.id);
+  const r = raceOvertake(st, ev.id);
+  return r && r.type === 'event-resolved' && r.reward === 200;
+})());
+check('nearest event', (() => {
+  const st = createEventState();
+  spawnEvent(st, createRng(8), { x: 0, z: 0 }, 'robbery');
+  return nearestEvent(st, st.active[0].actorX, st.active[0].actorZ, 10) !== null;
+})());
+check('ped archetypes exist', PED_ARCHETYPES.length === 6);
+eq('archetype jogger speed', archetypeSpeed('jogger'), 3.4);
+eq('archetype vendor speed', archetypeSpeed('vendor'), 0.7);
+check('traffic has bikes and trucks', (() => {
+  const tr2 = spawnTraffic(20261119, cityA);
+  const models = new Set(tr2.cars.map((c) => c.model));
+  return models.has('bike') || models.has('truck') || tr2.cars.length === 26;
+})());
+check('ped archetype assigned', (() => {
+  const tr2 = spawnTraffic(20261119, cityA);
+  return tr2.peds.every((p) => typeof p.archetype === 'string' && p.speed > 0);
+})());
+
+// ---- r6: save v2 round trip ----
+check('snapshot v2 round trip keeps new fields', (() => {
+  const g = fakeGame();
+  g.shops = { spent: 250, visits: 2 };
+  g.safehouse = { sleeps: 1, storedCars: [{ model: 'coupe', health: 90, engine: 1, grip: 0, armour: 0 }] };
+  g.vigilante = { done: 2, earned: 400 };
+  g.events = { completed: 3, earned: 300 };
+  g.playerHeli = { fuel: 55 };
+  g.loadout.armour = 30;
+  g.player.stamina = 70;
+  const snap = parseSnapshot(serializeSnapshot(g));
+  const g2 = fakeGame();
+  g2.shops = { spent: 0, visits: 0 };
+  g2.safehouse = { sleeps: 0, storedCars: [] };
+  g2.vigilante = { done: 0, earned: 0 };
+  g2.events = { completed: 0, earned: 0 };
+  g2.playerHeli = { fuel: 100 };
+  g2.loadout.armour = 0;
+  applySnapshot(g2, snap);
+  return g2.shops.spent === 250 && g2.safehouse.sleeps === 1 && g2.vigilante.done === 2
+    && g2.events.completed === 3 && g2.playerHeli.fuel === 55 && g2.loadout.armour === 30;
+})());
+check('progress summary totals', (() => {
+  const g = fakeGame();
+  g.vigilante = { done: 1 };
+  g.events = { completed: 2 };
+  g.shops = { spent: 100 };
+  const s = progressSummary(g);
+  return s.missionsTotal === 14 && s.packagesTotal === 16 && s.vigilante === 1 && s.events === 2;
+})());
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) {

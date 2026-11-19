@@ -12,7 +12,7 @@ export function buildSnapshot(game) {
     weapons[id] = { ammo: w.ammo === Infinity ? -1 : w.ammo, owned: w.owned };
   }
   return {
-    v: 1,
+    v: 2,
     cash: Math.round(game.player.cash),
     rep: game.player.rep,
     health: game.player.health,
@@ -28,11 +28,24 @@ export function buildSnapshot(game) {
     weapons,
     currentWeapon: game.loadout.current,
     carUpgrades: game.playerCar ? { engine: game.playerCar.engine, grip: game.playerCar.grip, armour: game.playerCar.armour } : null,
+    // r6: the new progress — armour, shop, safehouse, vigilante, events
+    // and heli fuel survive a reload like everything else.
+    armour: game.loadout.armour || 0,
+    shopSpent: game.shops ? game.shops.spent : 0,
+    shopVisits: game.shops ? game.shops.visits : 0,
+    safehouseSleeps: game.safehouse ? game.safehouse.sleeps : 0,
+    storedCars: game.safehouse ? game.safehouse.storedCars : [],
+    vigilanteDone: game.vigilante ? game.vigilante.done : 0,
+    vigilanteEarned: game.vigilante ? game.vigilante.earned : 0,
+    eventsDone: game.events ? game.events.completed : 0,
+    eventsEarned: game.events ? game.events.earned : 0,
+    heliFuel: game.playerHeli ? Math.round(game.playerHeli.fuel) : 100,
+    stamina: Math.round(game.player.stamina ?? 100),
   };
 }
 
 export function applySnapshot(game, snap) {
-  if (!snap || snap.v !== 1) return false;
+  if (!snap || (snap.v !== 1 && snap.v !== 2)) return false;
   game.player.cash = snap.cash || 0;
   game.player.rep = snap.rep || 0;
   game.player.health = snap.health ?? 100;
@@ -52,6 +65,26 @@ export function applySnapshot(game, snap) {
     game.loadout.weapons = snap.weapons;
   }
   if (snap.currentWeapon) game.loadout.current = snap.currentWeapon;
+  // r6 fields default cleanly when loading a v1 save from r5.
+  if (typeof snap.armour === 'number') game.loadout.armour = snap.armour;
+  if (game.shops) {
+    game.shops.spent = snap.shopSpent || 0;
+    game.shops.visits = snap.shopVisits || 0;
+  }
+  if (game.safehouse) {
+    game.safehouse.sleeps = snap.safehouseSleeps || 0;
+    game.safehouse.storedCars = Array.isArray(snap.storedCars) ? snap.storedCars.slice() : [];
+  }
+  if (game.vigilante) {
+    game.vigilante.done = snap.vigilanteDone || 0;
+    game.vigilante.earned = snap.vigilanteEarned || 0;
+  }
+  if (game.events) {
+    game.events.completed = snap.eventsDone || 0;
+    game.events.earned = snap.eventsEarned || 0;
+  }
+  if (game.playerHeli && typeof snap.heliFuel === 'number') game.playerHeli.fuel = snap.heliFuel;
+  if (typeof snap.stamina === 'number') game.player.stamina = snap.stamina;
   return true;
 }
 
@@ -62,7 +95,7 @@ export function serializeSnapshot(game) {
 export function parseSnapshot(text) {
   try {
     const snap = JSON.parse(text);
-    if (!snap || typeof snap !== 'object' || snap.v !== 1) return null;
+    if (!snap || typeof snap !== 'object' || (snap.v !== 1 && snap.v !== 2)) return null;
     return snap;
   } catch {
     return null;
@@ -121,5 +154,22 @@ export function scoreOf(game) {
     + game.side.packagesFound * 120
     + game.side.faresDone * 45
     + Math.floor(game.player.cash / 10)
-    + Math.floor(game.player.rep);
+    + Math.floor(game.player.rep)
+    // r6: the new work counts too — vigilante, events and the extra jobs.
+    + (game.vigilante ? game.vigilante.done * 150 : 0)
+    + (game.events ? game.events.completed * 100 : 0)
+    + (game.shops ? Math.floor(game.shops.spent / 50) : 0);
+}
+
+export function progressSummary(game) {
+  return {
+    missions: game.missions.completed.length,
+    missionsTotal: 14,
+    packages: game.side.packagesFound,
+    packagesTotal: game.side.packagesTotal || 16,
+    fares: game.side.faresDone,
+    vigilante: game.vigilante ? game.vigilante.done : 0,
+    events: game.events ? game.events.completed : 0,
+    score: scoreOf(game),
+  };
 }

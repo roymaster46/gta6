@@ -14,7 +14,40 @@ export const CAR_MODELS = [
   { id: 'van', name: 'Cargo Van', top: 24, accel: 13, color: 0x8a7a5a, value: 240, w: 2.1, l: 4.8 },
   { id: 'pickup', name: 'Dune Pickup', top: 30, accel: 16, color: 0x4a7a4a, value: 300, w: 2.0, l: 4.6 },
   { id: 'cop', name: 'HPD Interceptor', top: 36, accel: 22, color: 0x1e4fd8, value: 0, w: 1.9, l: 4.4 },
+  // r6: two new classes on the road — a quick, fragile motorbike that
+  // weaves through traffic, and a slow, heavy truck that shrugs off bumps.
+  { id: 'bike', name: 'Ember 900 Bike', top: 34, accel: 24, color: 0xd84a2f, value: 200, w: 0.9, l: 2.2 },
+  { id: 'truck', name: 'Harbor Hauler', top: 22, accel: 11, color: 0x5a6a7a, value: 380, w: 2.4, l: 6.4 },
 ];
+
+export function vehicleClass(modelId) {
+  if (modelId === 'bike') return 'bike';
+  if (modelId === 'truck' || modelId === 'van') return 'heavy';
+  if (modelId === 'cop') return 'police';
+  return 'car';
+}
+
+export function isTwoWheeler(modelId) {
+  return modelId === 'bike';
+}
+
+// r6 garage upgrades: engine (+12% top speed per level), grip (+10%
+// handling) and armour (-12% damage taken). Bought at Rusty Wrench.
+export function upgradeCar(car, kind, cash, price) {
+  if (cash < price) return { ok: false, cash, reason: 'not enough cash' };
+  if (kind === 'engine' && car.engine >= 3) return { ok: false, cash, reason: 'engine maxed' };
+  if (kind === 'grip' && car.grip >= 3) return { ok: false, cash, reason: 'grip maxed' };
+  if (kind === 'armour' && car.armour >= 3) return { ok: false, cash, reason: 'armour maxed' };
+  if (kind === 'engine') car.engine += 1;
+  else if (kind === 'grip') car.grip += 1;
+  else if (kind === 'armour') car.armour += 1;
+  else return { ok: false, cash, reason: 'unknown upgrade' };
+  return { ok: true, cash: cash - price, kind, level: car[kind] };
+}
+
+export function upgradeSummary(car) {
+  return { engine: car.engine, grip: car.grip, armour: car.armour };
+}
 
 export function modelById(id) {
   return CAR_MODELS.find((m) => m.id === id) || CAR_MODELS[1];
@@ -53,7 +86,9 @@ export function updateCar(car, input, dt, collide) {
 
   const steerTarget = (input.steer || 0) * CAR.steerMax * clamp(Math.abs(car.speed) / 8, 0, 1);
   car.steer += (steerTarget - car.steer) * Math.min(1, CAR.steerSpeed * 3 * dt);
-  const gripFactor = 1 + car.grip * 0.1;
+  // r6: bikes lean and turn sharper, trucks wallow — the class matters.
+  const classFactor = model.id === 'bike' ? 1.35 : model.id === 'truck' ? 0.7 : 1;
+  const gripFactor = (1 + car.grip * 0.1) / classFactor;
   car.heading += (car.steer * (car.speed / 6) * (input.handbrake ? 1.7 : 1) / gripFactor) * dt;
   car.heading = wrapAngle(car.heading);
 

@@ -43,6 +43,23 @@ html, body {
   white-space: nowrap;
 }
 
+/* r6: a one-line control reminder along the bottom edge, so the new
+   heli / shop / vigilante keys are visible without opening the menu. */
+#controls-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  color: rgba(232, 228, 218, 0.75);
+  background: rgba(8, 12, 20, 0.55);
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 5;
+}
+
 #fallback {
   position: fixed;
   inset: 0;

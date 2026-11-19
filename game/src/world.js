@@ -50,6 +50,12 @@ export function generateCity(seed) {
     { id: 'tower', name: 'Harborview Tower', x: 322, z: -46, kind: 'tower' },
     { id: 'stadium', name: 'Foundry Bowl', x: -322, z: -322, kind: 'stadium' },
     { id: 'ferry', name: 'Ferry Terminal', x: 414, z: 230, kind: 'ferry' },
+    // r6: new landmarks the new systems live at — gun shop, casino,
+    // heliport and a second safehouse up in Northgate.
+    { id: 'gunshop', name: 'Iron Annie Guns', x: -138, z: 138, kind: 'gunshop' },
+    { id: 'casino', name: 'Harbour Casino', x: 230, z: -138, kind: 'casino' },
+    { id: 'heliport', name: 'Harbor Heliport', x: 414, z: -138, kind: 'heliport' },
+    { id: 'safehouse2', name: 'Northgate Safehouse', x: -322, z: -138, kind: 'safehouse' },
   ];
   for (const def of landmarkDefs) {
     landmarks.push({ ...def, w: def.kind === 'stadium' ? 70 : 44, d: def.kind === 'stadium' ? 70 : 36, h: def.kind === 'tower' ? 96 : def.kind === 'bank' ? 34 : 18 });
@@ -114,21 +120,38 @@ export function generateCity(seed) {
     });
   }
 
-  // 12 hidden packages tucked in alleys, parks and behind landmarks.
+  // 16 hidden packages tucked in alleys, parks and behind landmarks.
+  // r6 adds four more in the new corners of town (casino, heliport,
+  // gunshop alley, Northgate) so the hunt keeps paying after the first 12.
   const pkgSpots = [
     { x: -414, z: -414 }, { x: 414, z: -368 }, { x: -368, z: 46 }, { x: 230, z: 414 },
     { x: -230, z: -414 }, { x: 46, z: 230 }, { x: -138, z: 138 }, { x: 368, z: 138 },
     { x: 138, z: -138 }, { x: -414, z: 230 }, { x: 322, z: -230 }, { x: -46, z: 414 },
+    { x: 230, z: -92 }, { x: 368, z: -138 }, { x: -92, z: 138 }, { x: -322, z: -92 },
   ];
   pkgSpots.forEach((p, idx) => packages.push({ id: idx, x: p.x, z: p.z, taken: false }));
 
   taxiStands.push({ x: 46, z: 46 }, { x: -46, z: 322 }, { x: 322, z: -322 }, { x: -322, z: -46 });
   garages.push({ x: 138, z: -322, name: 'Quick Coat' }, { x: -368, z: 322, name: 'Rusty Wrench' });
 
+  // r6: heli pads (heliport + two rooftops) and the avenues roadblocks
+  // seal at 4+ stars. Pads are flat clearings, not buildings, so the
+  // renderer draws an H circle and the heli can land on them.
+  const heliPads = [
+    { id: 'heliport', name: 'Harbor Heliport', x: 368, z: -138, radius: 10 },
+    { id: 'tower-roof', name: 'Harborview Tower Roof', x: 322, z: -46, radius: 9 },
+    { id: 'hospital-roof', name: 'St. Anselm Roof', x: -322, z: 138, radius: 9 },
+  ];
+  // Street corners where ambient events like to start.
+  const eventSpots = [
+    { x: 0, z: 0 }, { x: -184, z: 92 }, { x: 184, z: -92 },
+    { x: -92, z: -184 }, { x: 92, z: 184 }, { x: -276, z: 276 },
+  ];
+
   // The harbour water strip hugs the east edge; the pier reaches into it.
   return {
     seed, buildings, lamps, trees, parks, plazas, landmarks, billboards,
-    packages, carSpawns, taxiStands, garages,
+    packages, carSpawns, taxiStands, garages, heliPads, eventSpots,
     water: { x: HALF + 55, z: 0, w: 130, d: WORLD_SIZE + 260 },
     bounds: HALF,
   };
@@ -165,6 +188,30 @@ export function resolveBuildingCollision(city, x, z, radius) {
 
 export function landmarkById(city, id) {
   return city.landmarks.find((l) => l.id === id) || null;
+}
+
+export function heliPadById(city, id) {
+  return (city.heliPads || []).find((p) => p.id === id) || null;
+}
+
+export function nearestHeliPad(city, x, z, maxDist) {
+  let best = null;
+  let bestD = maxDist || Infinity;
+  for (const p of city.heliPads || []) {
+    const d = Math.hypot(x - p.x, z - p.z);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best ? { pad: best, dist: bestD } : null;
+}
+
+export function safehouses(city) {
+  return city.landmarks.filter((l) => l.kind === 'safehouse');
+}
+
+export function landmarkKinds(city) {
+  const kinds = {};
+  for (const lm of city.landmarks) kinds[lm.kind] = (kinds[lm.kind] || 0) + 1;
+  return kinds;
 }
 
 export function randomStreetPoint(rng, margin) {

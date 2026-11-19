@@ -1,4 +1,7 @@
 // Ember Harbor — make.fun gta6-01 entry point (Node 22, standard library only).
+// r6 "FIVE-STAR HARBOR": 14 story missions, a flyable helicopter, 5-star
+// SWAT/FIB response with roadblocks, a gun shop, safehouses, vigilante work
+// and living ambient events across Rust Harbor's nine districts.
 // The game is the static game/ folder beside this file: a Three.js open-world
 // crime game that runs in a desktop browser with zero network requests at
 // runtime. This script copies game/ and screenshots/ into the output dir and
@@ -7,6 +10,10 @@
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 // (Outside the grader's container MAKEFUN_OUTPUT_DIR stands in for /output.)
 // Serve the game locally with `node serve.ts`, then open http://localhost:8080.
+// r6 systems at a glance: heli.js (player + police helicopters), shops.js
+// (gun shop, safehouses, vigilante jobs), events.js (ambient city events),
+// swat.js (SWAT/FIB units and roadblocks), missions-extra.js (6 new story
+// jobs: Skyhook, Midnight Run, Ghost, Turf War, Tail Job, Harbor Heist).
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,6 +49,15 @@ writeFileSync(
 const shots = existsSync(join(here, 'screenshots'))
   ? readdirSync(join(here, 'screenshots')).filter((f) => /\.(jpe?g|png)$/i.test(f)).sort()
   : [];
+// r6: the four staged scenes must be present and in order — 1-day is the
+// cover, then night, the Skyhook mission at the heliport, and the 5-star
+// chase. A missing scene means the Playwright capture step was skipped.
+const EXPECTED_SHOTS = ['1-day.jpg', '2-night.jpg', '3-mission.jpg', '4-chase.jpg'];
+for (const expected of EXPECTED_SHOTS) {
+  if (!shots.includes(expected)) {
+    throw new Error(`Missing screenshot ${expected} — re-capture with ?shot=<name>&seed=20261119 before submitting.`);
+  }
+}
 // The scorer refuses a screenshot over 256 KiB, so fail loudly here instead
 // of shipping an entry that cannot be graded.
 const MAX_SHOT_BYTES = 262144;

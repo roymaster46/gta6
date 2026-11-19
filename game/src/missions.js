@@ -6,8 +6,12 @@
 
 import { ECONOMY } from './config.js';
 import { clamp, dist } from './utils.js';
+import { EXTRA_MISSION_DEFS } from './missions-extra.js';
 
-export const MISSION_DEFS = [
+// The full story: the first eight jobs plus the six r6 jobs. Keeping the
+// base list literal below and appending the extras keeps the merge visible
+// in one place — and the tests count all fourteen.
+export const BASE_MISSION_DEFS = [
   {
     id: 'first-drop', name: 'First Drop', giver: 'Mara at the Pier',
     brief: 'Three parcels, three doorsteps, one hour on the clock. Run them before the harbour fog rolls in.',
@@ -81,6 +85,9 @@ export const MISSION_DEFS = [
   },
 ];
 
+export const MISSION_DEFS = [...BASE_MISSION_DEFS, ...EXTRA_MISSION_DEFS];
+export const MISSION_COUNT = MISSION_DEFS.length;
+
 export function missionDef(id) {
   return MISSION_DEFS.find((m) => m.id === id) || null;
 }
@@ -98,6 +105,12 @@ export function createMissionState() {
     escapeTimer: 0,
     kills: 0,
     delivered: 0,
+    // r6: new step mechanics — tailing, turf defence, stealth and speed.
+    tailTimer: 0,
+    defendTimer: 0,
+    bonusEarned: 0,
+    spotted: false,
+    stepStartedAt: 0,
   };
 }
 
@@ -112,8 +125,13 @@ export function startMission(state, id) {
   state.race = null;
   state.taxi = null;
   state.escapeTimer = 0;
+  state.tailTimer = 0;
+  state.defendTimer = 0;
+  state.bonusEarned = 0;
+  state.spotted = false;
   state.kills = 0;
   state.delivered = 0;
+  state.stepStartedAt = 0;
   return true;
 }
 
@@ -136,19 +154,29 @@ export function missionProgress(state) {
     timeLeft: Math.max(0, Math.ceil(state.timeLeft)),
     kills: state.kills, delivered: state.delivered,
     race: state.race, taxi: state.taxi,
+    // r6 progress for the new step kinds, so the HUD can show a live bar.
+    tailTimer: Math.round(state.tailTimer || 0),
+    defendTimer: Math.round(state.defendTimer || 0),
+    bonusEarned: state.bonusEarned || 0,
+    spotted: !!state.spotted,
+    totalMissions: MISSION_DEFS.length,
   };
 }
 
 function advanceStep(state) {
   state.stepIndex += 1;
   state.escapeTimer = 0;
+  state.tailTimer = 0;
+  state.defendTimer = 0;
+  state.spotted = false;
+  state.stepStartedAt = state.timer;
   const def = missionDef(state.activeId);
   if (state.stepIndex >= def.steps.length) {
-    const reward = def.reward;
+    const reward = def.reward + (state.bonusEarned || 0);
     state.completed.push(state.activeId);
     state.activeId = null;
     state.stepIndex = 0;
-    return { done: true, reward, id: def.id, name: def.name };
+    return { done: true, reward, id: def.id, name: def.name, bonus: state.bonusEarned || 0 };
   }
   return { done: false, advanced: true };
 }
@@ -232,6 +260,73 @@ export function updateMission(state, ctx) {
     } else {
       state.escapeTimer = Math.max(0, state.escapeTimer - ctx.dt * 0.5);
     }
+  } else if (step.kind === 'flyto') {
+    // Reach the point — in the helicopter if the step says so, on foot
+    // or in a car otherwise. The caller passes inHeli when airborne.
+    const needHeli = step.heli !== false && (ctx.inHeli || dist(ctx.x, ctx.z, step.x, step.z) < 12);
+    if (ctx.inHeli ? dist(ctx.x, ctx.z, step.x, step.z) < 14 : dist(ctx.x, ctx.z, step.x, step.z) < 12) {
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+    }
+    void needHeli;
+  } else if (step.kind === 'timed-goto') {
+    // A timed drop: reach the point fast and bank the step bonus. Slow
+    // drops still count, but the bonus is only paid when the step's own
+    // par time is beaten — the caller passes stepTimeLeft via ctx.
+    if (dist(ctx.x, ctx.z, step.x, step.z) < 9) {
+      const stepTime = state.timer - state.stepStartedAt;
+      const par = step.par || 45;
+      if (stepTime <= par && step.bonus) state.bonusEarned += step.bonus;
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label, bonus: step.bonus };
+    }
+  } else if (step.kind === 'stealth') {
+    // Any heat at all blows the job — the moment the PD notices you,
+    // the mission fails. Arrive clean and the step advances.
+    if ((ctx.wantedStars || 0) > 0) {
+      state.spotted = true;
+      return failMission(state, 'Spotted — the PD noticed you');
+    }
+    if (dist(ctx.x, ctx.z, step.x, step.z) < 9) {
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+    }
+  } else if (step.kind === 'defend') {
+    // Hold the ground: survive the timer while the wave count is met.
+    // Kills feed state.kills; the timer only runs while the player is
+    // near the turf point, so running away does not count.
+    const near = dist(ctx.x, ctx.z, step.x, step.z) < 30;
+    if (near) state.defendTimer += ctx.dt;
+    if (state.defendTimer >= (step.survive || 60) && state.kills >= (step.count || 0)) {
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+    }
+    if (state.defendTimer >= (step.survive || 60) && state.kills < (step.count || 0)) {
+      return failMission(state, 'The turf was overrun');
+    }
+  } else if (step.kind === 'tail') {
+    // Stay in the 8–30 m band behind the target: too close and they
+    // spot you, too far and you lose them. ctx.tailDist is the distance
+    // to the moving target, fed by main.js every frame.
+    const d = ctx.tailDist;
+    if (d == null) {
+      // No target in range yet — hold position, do not fail.
+    } else if (d < 8) {
+      state.tailTimer = Math.max(0, state.tailTimer - ctx.dt * 2);
+      state.spotted = true;
+      if (state.tailTimer <= 0 && state.timer - state.stepStartedAt > 10) {
+        // Spotted only fails after the player crowds the target twice.
+        if (ctx.tailSpotted) return failMission(state, 'Spotted — you got too close');
+      }
+    } else if (d <= 30) {
+      state.tailTimer += ctx.dt;
+      if (state.tailTimer >= (step.tailTime || 45)) {
+        const r = advanceStep(state);
+        return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+      }
+    } else {
+      state.tailTimer = Math.max(0, state.tailTimer - ctx.dt);
+    }
   }
   return null;
 }
@@ -243,6 +338,10 @@ export function abortMission(state) {
   state.stepIndex = 0;
   state.race = null;
   state.taxi = null;
+  state.tailTimer = 0;
+  state.defendTimer = 0;
+  state.bonusEarned = 0;
+  state.spotted = false;
   return true;
 }
 
@@ -263,10 +362,15 @@ export function createSideState(city) {
   return {
     packages: city.packages.map((p) => ({ ...p })),
     packagesFound: 0,
+    packagesTotal: city.packages.length,
     faresDone: 0,
     fare: null,
     chopCooldown: 0,
     chopSales: 0,
+    // r6: VIP fares pay triple but hate bumps; vigilante + event money
+    // is tracked here so the HUD can show one side-income total.
+    vipFaresDone: 0,
+    sideEarned: 0,
   };
 }
 

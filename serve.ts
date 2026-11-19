@@ -37,6 +37,10 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+// r6: `?shot=day|night|mission|chase` stages a deterministic screenshot
+// scene instead of the title screen; the server needs no special case
+// for it — main.js reads the query string in the browser.
+
 createServer((request, response) => {
   let pathname;
   try {
