@@ -41,6 +41,18 @@ export function buildSnapshot(game) {
     eventsEarned: game.events ? game.events.earned : 0,
     heliFuel: game.playerHeli ? Math.round(game.playerHeli.fuel) : 100,
     stamina: Math.round(game.player.stamina ?? 100),
+    // r7: story chapter, legend rep, skills, side jobs, crowds, boats
+    // and interiors survive a reload like everything else.
+    storyChapter: game.story ? game.story.chapterIndex : 0,
+    storyChapters: game.story ? game.story.completedChapters.slice() : [],
+    legendRep: game.player.rep || 0,
+    skills: game.player.skills ? { ...game.player.skills } : { driving: 0, shooting: 0, swimming: 0, flying: 0 },
+    r7Missions: game.r7missions ? game.r7missions.completed.slice() : [],
+    sideJobsDone: game.sidejobs ? game.sidejobs.totalDone : 0,
+    sideJobsEarned: game.sidejobs ? game.sidejobs.totalEarned : 0,
+    crowdPanics: game.crowd ? game.crowd.panics : 0,
+    interiorsVisited: game.interiors ? game.interiors.visited.slice() : [],
+    boatsStolen: game.boatsStolen || 0,
   };
 }
 
@@ -85,6 +97,20 @@ export function applySnapshot(game, snap) {
   }
   if (game.playerHeli && typeof snap.heliFuel === 'number') game.playerHeli.fuel = snap.heliFuel;
   if (typeof snap.stamina === 'number') game.player.stamina = snap.stamina;
+  // r7 fields default cleanly when loading an older save.
+  if (game.story) {
+    game.story.chapterIndex = snap.storyChapter || 0;
+    game.story.completedChapters = Array.isArray(snap.storyChapters) ? snap.storyChapters.slice() : [];
+  }
+  if (snap.skills && game.player.skills) game.player.skills = { ...game.player.skills, ...snap.skills };
+  if (game.r7missions && Array.isArray(snap.r7Missions)) game.r7missions.completed = snap.r7Missions.slice();
+  if (game.sidejobs) {
+    game.sidejobs.totalDone = snap.sideJobsDone || 0;
+    game.sidejobs.totalEarned = snap.sideJobsEarned || 0;
+  }
+  if (game.crowd && typeof snap.crowdPanics === 'number') game.crowd.panics = snap.crowdPanics;
+  if (game.interiors && Array.isArray(snap.interiorsVisited)) game.interiors.visited = snap.interiorsVisited.slice();
+  if (typeof snap.boatsStolen === 'number') game.boatsStolen = snap.boatsStolen;
   return true;
 }
 
@@ -158,7 +184,12 @@ export function scoreOf(game) {
     // r6: the new work counts too — vigilante, events and the extra jobs.
     + (game.vigilante ? game.vigilante.done * 150 : 0)
     + (game.events ? game.events.completed * 100 : 0)
-    + (game.shops ? Math.floor(game.shops.spent / 50) : 0);
+    + (game.shops ? Math.floor(game.shops.spent / 50) : 0)
+    // r7: story chapters, r7 missions, side jobs and legend all count.
+    + (game.story ? game.story.completedChapters.length * 400 : 0)
+    + (game.r7missions ? game.r7missions.completed.length * 1000 : 0)
+    + (game.sidejobs ? game.sidejobs.totalDone * 120 : 0)
+    + (game.interiors ? game.interiors.visited.length * 80 : 0);
 }
 
 export function progressSummary(game) {
@@ -171,5 +202,11 @@ export function progressSummary(game) {
     vigilante: game.vigilante ? game.vigilante.done : 0,
     events: game.events ? game.events.completed : 0,
     score: scoreOf(game),
+    // r7: the wider game — 22 missions total, story chapters, side jobs.
+    missionsTotalAll: 22,
+    r7Missions: game.r7missions ? game.r7missions.completed.length : 0,
+    storyChapters: game.story ? game.story.completedChapters.length : 0,
+    sideJobs: game.sidejobs ? game.sidejobs.totalDone : 0,
+    interiors: game.interiors ? game.interiors.visited.length : 0,
   };
 }

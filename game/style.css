@@ -60,6 +60,30 @@ html, body {
   z-index: 5;
 }
 
+/* r7: the Seven-Star badge — top-right, gold, always visible, so the
+   player knows the legend ladder they are climbing. */
+#r7-badge {
+  position: fixed;
+  top: 10px;
+  right: 200px;
+  color: #c9a227;
+  background: rgba(8, 12, 20, 0.55);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 5px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 162, 39, 0.5);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* r7: rain vignette — the screen edges darken harder in a storm. */
+#vignette.storm {
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 20, 0.55) 100%);
+}
+
 #fallback {
   position: fixed;
   inset: 0;

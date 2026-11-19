@@ -18,17 +18,53 @@ export const CAR_MODELS = [
   // weaves through traffic, and a slow, heavy truck that shrugs off bumps.
   { id: 'bike', name: 'Ember 900 Bike', top: 34, accel: 24, color: 0xd84a2f, value: 200, w: 0.9, l: 2.2 },
   { id: 'truck', name: 'Harbor Hauler', top: 22, accel: 11, color: 0x5a6a7a, value: 380, w: 2.4, l: 6.4 },
+  // r7: the harbour fleet — a boat for the water, a sports bike for the
+  // Strip, a limo for VIPs, an ambulance, a bus and a muscle car.
+  { id: 'boat', name: 'Harbor Runner Boat', top: 30, accel: 14, color: 0x2e7a8a, value: 520, w: 2.2, l: 6.8 },
+  { id: 'sportbike', name: 'Comet R Sport Bike', top: 42, accel: 28, color: 0xff2e88, value: 480, w: 0.8, l: 2.1 },
+  { id: 'limo', name: 'Harborview Limo', top: 32, accel: 14, color: 0x111111, value: 600, w: 2.0, l: 6.2 },
+  { id: 'ambulance', name: 'St. Anselm Ambulance', top: 31, accel: 16, color: 0xf2f2f2, value: 0, w: 2.1, l: 5.4 },
+  { id: 'bus', name: 'Harbor Bus', top: 24, accel: 10, color: 0x2e6a4a, value: 300, w: 2.5, l: 8.0 },
+  { id: 'muscle', name: 'Iron V8 Muscle', top: 40, accel: 23, color: 0x7a1a1a, value: 550, w: 2.0, l: 4.6 },
 ];
 
 export function vehicleClass(modelId) {
-  if (modelId === 'bike') return 'bike';
-  if (modelId === 'truck' || modelId === 'van') return 'heavy';
+  if (modelId === 'bike' || modelId === 'sportbike') return 'bike';
+  if (modelId === 'boat') return 'boat';
+  if (modelId === 'ambulance') return 'emergency';
+  if (modelId === 'truck' || modelId === 'van' || modelId === 'bus') return 'heavy';
   if (modelId === 'cop') return 'police';
   return 'car';
 }
 
 export function isTwoWheeler(modelId) {
-  return modelId === 'bike';
+  return modelId === 'bike' || modelId === 'sportbike';
+}
+
+// r7: handling table — turn, grip and drift per model, so the sports
+// bike, the boat and the muscle car all feel different in the same city.
+export function handlingFor(modelId) {
+  const table = {
+    boat: { turn: 0.55, grip: 0.45, drift: 0.9 },
+    sportbike: { turn: 1.6, grip: 1.25, drift: 0.2 },
+    bike: { turn: 1.35, grip: 1.1, drift: 0.3 },
+    muscle: { turn: 1.0, grip: 0.85, drift: 0.65 },
+    limo: { turn: 0.8, grip: 1.0, drift: 0.15 },
+    bus: { turn: 0.65, grip: 0.9, drift: 0.1 },
+    truck: { turn: 0.7, grip: 0.9, drift: 0.1 },
+    ambulance: { turn: 0.95, grip: 1.05, drift: 0.1 },
+    coupe: { turn: 1.1, grip: 1.05, drift: 0.4 },
+    cop: { turn: 1.15, grip: 1.1, drift: 0.25 },
+  };
+  return table[modelId] || { turn: 1, grip: 1, drift: 0.3 };
+}
+
+export function isBoatCar(car) {
+  return car.model === 'boat';
+}
+
+export function topSpeedFor(modelId) {
+  return modelById(modelId).top;
 }
 
 // r6 garage upgrades: engine (+12% top speed per level), grip (+10%

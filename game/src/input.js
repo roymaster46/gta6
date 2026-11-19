@@ -16,6 +16,10 @@ export const ACTION_CAMERA = 128;
 export const ACTION_SHOP = 256;
 export const ACTION_DESCEND = 512;
 export const ACTION_VIGILANTE = 1024;
+// r7: side job (Q — start the next taxi/ambulance/courier job) and
+// interior (T — enter the doorway you are standing at).
+export const ACTION_SIDEJOB = 2048;
+export const ACTION_INTERIOR = 4096;
 
 const KEYMAP = {
   KeyW: 'up', ArrowUp: 'up',
@@ -32,10 +36,14 @@ const KEYMAP = {
   KeyP: 'pause', Escape: 'pause',
   Enter: 'confirm',
   Digit1: 'w1', Digit2: 'w2', Digit3: 'w3', Digit4: 'w4', Digit5: 'w5',
+  // r7: 6 revolver, 7 silenced Whisper.
+  Digit6: 'w6', Digit7: 'w7',
   KeyM: 'mute', KeyR: 'reload', KeyG: 'garage',
   // r6 keys: B shop, X heli descend, V vigilante job, Ctrl crouch/stealth.
   KeyB: 'shop', KeyX: 'descend', KeyV: 'vigilante',
   ControlLeft: 'crouch', ControlRight: 'crouch',
+  // r7 keys: Q side job, T enter interior doorway.
+  KeyQ: 'sidejob', KeyT: 'interior',
 };
 
 export function createInput(canvas) {
@@ -66,6 +74,8 @@ export function createInput(canvas) {
     if (name === 'shop') actions |= ACTION_SHOP;
     if (name === 'descend') actions |= ACTION_DESCEND;
     if (name === 'vigilante') actions |= ACTION_VIGILANTE;
+    if (name === 'sidejob') actions |= ACTION_SIDEJOB;
+    if (name === 'interior') actions |= ACTION_INTERIOR;
   }
 
   function onKeyUp(e) {

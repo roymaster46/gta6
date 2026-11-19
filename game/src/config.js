@@ -131,6 +131,55 @@ export const MISSIONS = {
   // r6: the six new jobs pay for new mechanics (heli, stealth, turf).
   extraCount: 6,
   heistReward: 2000,
+  // r7: eight more jobs (total 22) — boats, escorts, the championship,
+  // bounties and the two-part finale. The base 14 stay the story spine.
+  r7Count: 8,
+  totalCount: 22,
+  r7Reward: 10800,
+};
+
+export const WEATHER_TUNING = {
+  rainGripLoss: 0.35,
+  fogSight: 0.45,
+  stormHeliGrounded: true,
+  nightPatrol: 1.35,
+  changeInterval: 75,
+};
+
+export const CROWD_TUNING = {
+  maxGroups: 5,
+  panicRadiusBase: 26,
+  panicRadiusPerStar: 6,
+  groupSpawnInterval: 35,
+};
+
+export const LEGEND = {
+  // Seven-star legend: reputation tiers beyond the 5-star wanted level.
+  // A legend is what the city calls you between chases — it never decays
+  // the way heat does, and it unlocks the final missions.
+  tiers: [
+    { stars: 1, name: 'Nobody', rep: 0 },
+    { stars: 2, name: 'Small Name', rep: 50 },
+    { stars: 3, name: 'Known Face', rep: 150 },
+    { stars: 4, name: 'Harbour Regular', rep: 300 },
+    { stars: 5, name: 'Most Wanted', rep: 500 },
+    { stars: 6, name: 'Harbour Legend', rep: 800 },
+    { stars: 7, name: 'SEVEN-STAR', rep: 1200 },
+  ],
+  finalMissionRep: 500,
+};
+
+export const BOAT_TUNING = {
+  topSpeed: 30,
+  dockCost: 0,
+  charterPay: 80,
+};
+
+export const FX_TUNING = {
+  maxParticles: 400,
+  slowMoScale: 0.25,
+  slowMoSeconds: 1.4,
+  headshotRange: 30,
 };
 
 export const SIDE_JOBS = {
@@ -208,6 +257,10 @@ export const WEAPONS = {
   // r6: the Longshot Rifle — slow, loud, and the only gun that can bring
   // down a police helicopter from the ground. Sold at Iron Annie Guns.
   rifle: { name: 'Longshot Rifle', damage: 55, range: 120, rate: 1.1, ammo: 40, auto: false, antiHeli: true },
+  // r7: the Iron Revolver — six heavy rounds, huge damage, slow reload;
+  // and the Whisper — a silenced pistol that builds no heat when it kills.
+  revolver: { name: 'Iron Revolver', damage: 68, range: 48, rate: 0.9, ammo: 24, auto: false, heavy: true },
+  whisper: { name: 'Whisper Silenced', damage: 26, range: 40, rate: 0.28, ammo: 60, auto: false, silent: true },
 };
 
 // r6: the city also has named corners inside the nine districts — the
@@ -228,4 +281,29 @@ export function neighborhoodAt(x, z) {
     if (d < bestD) { bestD = d; best = n; }
   }
   return best;
+}
+
+// r7: legend tiers — the seven-star ladder the city grades you on.
+// Rep is permanent; heat is the chase you are in right now.
+export function legendTierFor(rep) {
+  let tier = LEGEND.tiers[0];
+  for (const t of LEGEND.tiers) {
+    if (rep >= t.rep) tier = t;
+  }
+  return tier;
+}
+
+export function legendStars(rep) {
+  return legendTierFor(rep).stars;
+}
+
+export function legendName(rep) {
+  return legendTierFor(rep).name;
+}
+
+export function repToNextLegend(rep) {
+  for (const t of LEGEND.tiers) {
+    if (rep < t.rep) return { next: t, need: t.rep - rep };
+  }
+  return { next: null, need: 0 };
 }

@@ -85,3 +85,17 @@ export function totalExtraRewards() {
 export function storyArcOrder(firstEightIds) {
   return [...firstEightIds, ...extraMissionIds()];
 }
+
+// r7: the three-act story — each act names its chapters, so the HUD can
+// show "Act II — The Night Market" instead of just a mission number.
+export function storyActs() {
+  return [
+    { id: 'act1', title: 'Act I — Coming Home', chapters: ['homecoming', 'the-pier-debt', 'neon-mile'], missions: ['first-drop', 'hot-wheels', 'payback', 'night-shift', 'street-circuit', 'smash-grab'] },
+    { id: 'act2', title: 'Act II — The Night Market', chapters: ['market-lights', 'the-ledger', 'harbourmaster'], missions: ['midnight-run', 'ghost', 'turf-war', 'tail-job', 'skyhook', 'the-big-one'] },
+    { id: 'act3', title: 'Act III — Seven Stars', chapters: ['seven-stars', 'the-last-ferry'], missions: ['harbor-heist', 'r7-ferry-gambit', 'r7-last-ferry', 'r7-harbor-king'] },
+  ];
+}
+
+export function actForMission(missionId) {
+  return storyActs().find((a) => a.missions.includes(missionId)) || null;
+}

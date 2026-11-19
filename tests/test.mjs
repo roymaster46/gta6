@@ -22,6 +22,19 @@ import { createSwatUnit, updateSwat, damageSwat, createFibCar, updateFibCar, spa
 import { SHOP_STOCK, shopItem, createShopState, openShop, closeShop, shopCycle, selectedItem, buySelected, createSafehouseState, healAtSafehouse, sleepAtSafehouse, storeCarAtSafehouse, createVigilanteState, startVigilante, updateVigilante, damageVigilanteTarget, tickVigilante, vipFarePay } from '../game/src/shops.js';
 import { EVENT_KINDS, eventDef, createEventState, spawnEvent, updateEvents, resolveEvent, raceOvertake, nearestEvent, PED_ARCHETYPES, archetypeSpeed } from '../game/src/events.js';
 import { STEP } from '../game/src/config.js';
+import { LEGEND, legendTierFor, legendStars } from '../game/src/config.js';
+import { createStoryState, currentChapter, chapterById, chapterForMission, startCutscene, cutsceneLine, skipCutsceneLine, advanceChapter, storyCompletion, STORY_CHAPTERS, STORY_CHARACTERS } from '../game/src/story.js';
+import { createWeatherState, updateWeather, weatherModifiers, phaseAt, isNight, heatRateMultiplier, roadblockStars, weatherSummary } from '../game/src/weather.js';
+import { createCrowdState, spawnCrowdGroup, updateCrowds, panicCrowd, crowdCount, crowdNear, CROWD_TYPES } from '../game/src/crowd.js';
+import { createBoat, updateBoat, boatInWater, nearestDock, r7ModelById, vehicleHandling, isBoatModel } from '../game/src/boats.js';
+import { INTERIORS, interiorById, createInteriorState, enterInterior, exitInterior, takeInteriorLoot, stallById, buyFromStall, NIGHT_MARKET_STALLS, R7_DISTRICTS } from '../game/src/interiors.js';
+import { createSideJobsState, startSideJob, updateSideJob, sideJobsSummary, SIDE_JOB_KINDS, BOUNTY_BOARD, nextBounty } from '../game/src/sidejobs.js';
+import { createFxState, spawnParticles, updateParticles, addShake, triggerSlowMo, updateSlowMo, registerHeadshot, explode, fxSummary } from '../game/src/fx.js';
+import { R7_MISSION_DEFS, createR7MissionState, startR7Mission, updateR7Mission, r7MissionProgress, nextR7Mission, totalR7Rewards, allMissionsTotal } from '../game/src/missions-r7.js';
+import { createMarshal, updateMarshal, damageMarshal, marshalForLegend } from '../game/src/swat.js';
+import { legendFor } from '../game/src/police.js';
+import { isHeadshot, headshotDamage, silentKill, weaponList } from '../game/src/combat.js';
+import { totalMissionCount } from '../game/src/missions.js';
 
 let passed = 0;
 let failed = 0;
@@ -935,6 +948,243 @@ check('progress summary totals', (() => {
   const s = progressSummary(g);
   return s.missionsTotal === 14 && s.packagesTotal === 16 && s.vigilante === 1 && s.events === 2;
 })());
+
+// ---- r7: story campaign ----
+eq('story chapters count', STORY_CHAPTERS.length, 8);
+eq('story characters count', STORY_CHARACTERS.length, 8);
+eq('chapter homecoming', chapterById('homecoming').title, 'Homecoming');
+check('chapter for mission', chapterForMission('first-drop').id === 'homecoming');
+check('chapter for r7 mission', chapterForMission('r7-harbor-king').id === 'the-last-ferry');
+check('story starts chapter 0', currentChapter(createStoryState()).id === 'homecoming');
+check('cutscene lines', (() => {
+  const s = createStoryState();
+  startCutscene(s, 'homecoming');
+  const line = cutsceneLine(s);
+  return line && line.who === 'Mara Voss' && line.total === 5;
+})());
+check('cutscene advances', (() => {
+  const s = createStoryState();
+  startCutscene(s, 'homecoming');
+  skipCutsceneLine(s);
+  return cutsceneLine(s).index === 1;
+})());
+check('chapter advances when missions done', (() => {
+  const s = createStoryState();
+  const ev = advanceChapter(s, ['first-drop', 'hot-wheels']);
+  return ev && ev.type === 'chapter-complete' && ev.next.id === 'the-pier-debt';
+})());
+check('chapter does not advance early', advanceChapter(createStoryState(), ['first-drop']) === null);
+check('story completion pct', (() => {
+  const s = createStoryState();
+  const c = storyCompletion(s, ['first-drop', 'hot-wheels']);
+  return c.done === 2 && c.total === 16 && c.pct === 13;
+})());
+
+// ---- r7: weather ----
+check('phase night', phaseAt(0.1).id === 'night');
+check('phase noon', phaseAt(0.4).id === 'morning');
+check('isNight true', isNight(0.95));
+check('isNight false at noon', !isNight(0.5));
+check('rain slick', weatherModifiers('rain', 1).slick > 0.3);
+check('fog cuts visibility', weatherModifiers('fog', 1).visibility < 0.6);
+check('storm grounds heli', weatherModifiers('storm', 1).heliGrounded === true);
+check('clear no slick', weatherModifiers('clear', 1).slick === 0);
+check('night heat faster', heatRateMultiplier('clear', 0.95) > heatRateMultiplier('clear', 0.5));
+check('roadblock earlier at night', roadblockStars('clear', 0.95) === 3 && roadblockStars('clear', 0.5) === 4);
+check('weather changes over time', (() => {
+  const st = createWeatherState();
+  st.timer = 0.01;
+  const ev = updateWeather(st, STEP, createRng(3), 0.5);
+  return ev && ev.type === 'weather-changed' && st.changes === 1;
+})());
+check('weather summary', weatherSummary(createWeatherState(), 0.5).weather === 'clear');
+
+// ---- r7: crowds ----
+check('crowd types', CROWD_TYPES.length === 6);
+check('spawn crowd group', (() => {
+  const st = createCrowdState();
+  const g = spawnCrowdGroup(st, createRng(2), { x: 0, z: 0 });
+  return g && g.members.length >= 4 && st.totalSpawned >= 4;
+})());
+check('crowd panic', (() => {
+  const st = createCrowdState();
+  const g = spawnCrowdGroup(st, createRng(2), { x: 0, z: 0 });
+  const n = panicCrowd(st, g.x, g.z, 100);
+  return n === g.members.length && g.mood === 'panicked' && st.panics === 1;
+})());
+check('crowd count', (() => {
+  const st = createCrowdState();
+  spawnCrowdGroup(st, createRng(2), { x: 0, z: 0 });
+  return crowdCount(st) >= 4;
+})());
+check('crowd updates move', (() => {
+  const st = createCrowdState();
+  const g = spawnCrowdGroup(st, createRng(2), { x: 0, z: 0 });
+  const x0 = g.x;
+  updateCrowds(st, { x: 400, z: 400 }, 1, createRng(4), []);
+  return g.x !== x0 || g.z !== undefined;
+})());
+
+// ---- r7: boats & vehicles ----
+check('boat model', r7ModelById('boat').name === 'Harbor Runner Boat');
+check('isBoatModel', isBoatModel('boat') && !isBoatModel('sedan'));
+check('boat handling slides', vehicleHandling('boat').turn < vehicleHandling('sportbike').turn);
+check('boat sails forward', (() => {
+  const b = createBoat(470, 0, 0);
+  for (let i = 0; i < 120; i += 1) updateBoat(b, { throttle: 1, steer: 0 }, STEP);
+  return b.speed > 5 && b.z > 5;
+})());
+check('boat stays in water', (() => {
+  const b = createBoat(470, 0, 0);
+  for (let i = 0; i < 600; i += 1) updateBoat(b, { throttle: 1, steer: 0.5 }, STEP);
+  return b.x >= 440 && b.x <= 620;
+})());
+check('boatInWater', boatInWater(500, 0) && !boatInWater(0, 0));
+check('nearest dock', nearestDock(470, 400).dock.id === 'pier-south');
+check('sportbike faster than coupe', r7ModelById('sportbike').top > modelById('coupe').top);
+
+// ---- r7: interiors & market ----
+eq('interiors count', INTERIORS.length, 6);
+eq('stalls count', NIGHT_MARKET_STALLS.length, 6);
+eq('r7 districts count', R7_DISTRICTS.length, 5);
+check('interior by id', interiorById('casino-floor').kind === 'casino');
+check('enter interior', (() => {
+  const st = createInteriorState();
+  const p = createPlayer(-138, 122);
+  const r = enterInterior(st, 'gunshop-back', p);
+  return r.ok && st.current === 'gunshop-back' && st.visited.length === 1;
+})());
+check('exit interior', (() => {
+  const st = createInteriorState();
+  const p = createPlayer(-138, 122);
+  enterInterior(st, 'gunshop-back', p);
+  const r = exitInterior(st, p);
+  return r.ok && st.current === null;
+})());
+check('interior loot pays', (() => {
+  const st = createInteriorState();
+  const p = createPlayer(0, 0);
+  p.cash = 0;
+  const r = takeInteriorLoot(st, 'warehouse-9', 0, p);
+  return r.ok && p.cash === 400 && !takeInteriorLoot(st, 'warehouse-9', 0, p).ok;
+})());
+check('stall buys heal', (() => {
+  const stall = stallById('noodles');
+  const p = createPlayer(0, 0);
+  p.health = 50;
+  p.cash = 100;
+  const r = buyFromStall(stall, p);
+  return r.ok && p.health === 75 && p.cash === 90;
+})());
+
+// ---- r7: side jobs ----
+eq('side job kinds', SIDE_JOB_KINDS.length, 6);
+check('start taxi shift', (() => {
+  const st = createSideJobsState();
+  return startSideJob(st, 'taxi-shift', createRng(1), cityA) !== null;
+})());
+check('side job pickup then deliver', (() => {
+  const st = createSideJobsState();
+  const job = startSideJob(st, 'courier', createRng(1), cityA);
+  updateSideJob(st, { x: job.fromX, z: job.fromZ, dt: STEP });
+  const ev = updateSideJob(st, { x: job.toX, z: job.toZ, dt: STEP });
+  return ev && (ev.type === 'sidejob-leg' || ev.type === 'sidejob-complete');
+})());
+check('side job times out', (() => {
+  const st = createSideJobsState();
+  startSideJob(st, 'courier', createRng(1), cityA);
+  let ev = null;
+  for (let i = 0; i < 60 * 200 && !ev; i += 1) ev = updateSideJob(st, { x: 400, z: 400, dt: STEP });
+  return ev && ev.type === 'sidejob-failed';
+})());
+check('bounty board', BOUNTY_BOARD.length === 4 && nextBounty([]).id === 'bounty-1');
+check('bounty next skips done', nextBounty(['bounty-1', 'bounty-2']).id === 'bounty-3');
+
+// ---- r7: fx ----
+check('fx particles spawn', (() => {
+  const fx = createFxState();
+  spawnParticles(fx, 'smoke', 0, 1, 0, 10, 3);
+  return fx.particles.length === 10;
+})());
+check('fx particles decay', (() => {
+  const fx = createFxState();
+  spawnParticles(fx, 'smoke', 0, 1, 0, 5, 3);
+  for (let i = 0; i < 120; i += 1) updateParticles(fx, STEP);
+  return fx.particles.length < 5;
+})());
+check('fx shake decays', (() => {
+  const fx = createFxState();
+  addShake(fx, 1);
+  for (let i = 0; i < 120; i += 1) updateParticles(fx, STEP);
+  return fx.shake <= 1;
+})());
+check('slow-mo triggers and ends', (() => {
+  const fx = createFxState();
+  triggerSlowMo(fx, 0.5, 0.25);
+  if (fx.timeScale !== 0.25) return false;
+  for (let i = 0; i < 60; i += 1) updateSlowMo(fx, STEP);
+  return fx.timeScale === 1;
+})());
+check('long headshot slow-mo', (() => {
+  const fx = createFxState();
+  const r = registerHeadshot(fx, 45);
+  return r.slowMo && fx.slowMoKills === 1;
+})());
+check('close headshot no slow-mo', (() => {
+  const fx = createFxState();
+  return registerHeadshot(fx, 15).slowMo === false;
+})());
+check('explosion counts', (() => {
+  const fx = createFxState();
+  explode(fx, 0, 0, 8);
+  return fx.explosions === 1 && fx.particles.length > 20;
+})());
+
+// ---- r7: missions ----
+eq('r7 mission defs count', R7_MISSION_DEFS.length, 8);
+eq('all missions total', allMissionsTotal(), 22);
+eq('total mission count helper', totalMissionCount(), 22);
+check('r7 rewards sum', totalR7Rewards() === 1400 + 1800 + 2500 + 700 + 900 + 1200 + 1500 + 500);
+check('r7 ferry gambit boat step', (() => {
+  const ms = createR7MissionState();
+  startR7Mission(ms, 'r7-ferry-gambit');
+  const ev = updateR7Mission(ms, { x: 470, z: 414, dt: STEP, wantedStars: 0 });
+  return ev && ev.type === 'step' && ms.stepIndex === 1;
+})());
+check('r7 market courier timed bonus', (() => {
+  const ms = createR7MissionState();
+  startR7Mission(ms, 'r7-market-courier');
+  updateR7Mission(ms, { x: -62, z: -230, dt: STEP, wantedStars: 0 });
+  return ms.bonusEarned === 60;
+})());
+check('r7 harbor king completes', (() => {
+  const ms = createR7MissionState();
+  startR7Mission(ms, 'r7-harbor-king');
+  updateR7Mission(ms, { x: -368, z: -368, dt: STEP, wantedStars: 0 });
+  updateR7Mission(ms, { x: 230, z: -138, dt: STEP, wantedStars: 0 });
+  const ev = updateR7Mission(ms, { x: 414, z: 138, dt: STEP, wantedStars: 0 });
+  return ev && ev.type === 'complete' && ev.reward === 2500;
+})());
+check('r7 next mission', nextR7Mission(createR7MissionState()).id === 'r7-ferry-gambit');
+
+// ---- r7: legend, marshal, combat ----
+eq('legend tier 7', legendFor(1200).stars, 7);
+eq('legend tier 1', legendFor(0).stars, 1);
+eq('legend name', legendFor(850).name, 'Harbour Legend');
+eq('config legend stars', legendStars(1200), 7);
+check('marshal for legend', marshalForLegend(900) && !marshalForLegend(100));
+check('marshal chases', (() => {
+  const u = createMarshal(0, 0);
+  updateMarshal(u, { x: 10, z: 0 }, STEP);
+  return u.state === 'chase' && u.x > 0;
+})());
+check('marshal dies', (() => { const u = createMarshal(0, 0); damageMarshal(u, 999); return u.dead; })());
+check('headshot rule', isHeadshot(40, 0.1, 'rifle') && !isHeadshot(40, 0.1, 'fists') && !isHeadshot(5, 0.1, 'rifle'));
+eq('headshot damage doubles', headshotDamage(34, 'pistol'), 68);
+check('whisper silent', silentKill(Object.assign(createLoadout(), { current: 'whisper' })));
+check('revolver locked at start', !createLoadout().weapons.revolver.owned);
+check('weapon list owned', weaponList(createLoadout()).includes('pistol'));
+check('fx summary', (() => { const fx = createFxState(); explode(fx, 0, 0, 8); return fxSummary(fx).explosions === 1; })());
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) {

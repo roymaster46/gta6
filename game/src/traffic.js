@@ -71,6 +71,60 @@ export function pedArchetypeSpeed(archetype) {
   return ARCHETYPE_SPEED[archetype] || 1.6;
 }
 
+// r7: crowd peds — the same walkers, but in a group that panics together.
+// A group member flees from the nearest threat and regroups when calm.
+export function updateCrowdPed(ped, threats, dt, group) {
+  if (ped.dead) return ped;
+  let fleeing = false;
+  for (const t of threats || []) {
+    if (dist(ped.x, ped.z, t.x, t.z) < (t.radius || 26)) {
+      fleeing = true;
+      ped.fleeX = ped.x - t.x;
+      ped.fleeZ = ped.z - t.z;
+      break;
+    }
+  }
+  if (fleeing) {
+    ped.state = 'flee';
+    const len = Math.hypot(ped.fleeX, ped.fleeZ) || 1;
+    ped.heading = Math.atan2(ped.fleeX / len, ped.fleeZ / len);
+    ped.x += Math.sin(ped.heading) * 4.6 * dt;
+    ped.z += Math.cos(ped.heading) * 4.6 * dt;
+  } else if (ped.state === 'flee') {
+    ped.state = 'walk';
+    ped.stateTimer = 3;
+  } else if (group) {
+    // Stay near the group leader instead of wandering off alone.
+    const d = dist(ped.x, ped.z, group.x, group.z);
+    if (d > 8) {
+      const h = Math.atan2(group.x - ped.x, group.z - ped.z);
+      ped.heading = h;
+      ped.x += Math.sin(h) * ped.speed * dt;
+      ped.z += Math.cos(h) * ped.speed * dt;
+    }
+  }
+  ped.x = clamp(ped.x, -452, 452);
+  ped.z = clamp(ped.z, -452, 452);
+  return ped;
+}
+
+export function pedCrossesStreet(ped, dt) {
+  // A ped crossing uses the nearest street centreline as its path.
+  const targetX = Math.round(ped.x / 92) * 92;
+  const d = Math.abs(targetX - ped.x);
+  if (d < 1) return false;
+  ped.x += Math.sign(targetX - ped.x) * ped.speed * dt;
+  return true;
+}
+
+export function trafficDensity(cars, x, z, radius) {
+  let n = 0;
+  for (const c of cars) {
+    if (dist(c.x, c.z, x, z) < radius) n += 1;
+  }
+  return n;
+}
+
 function carAhead(cars, self) {
   let best = null;
   let bestD = 16;

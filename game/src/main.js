@@ -11,9 +11,9 @@ import { generateCity, landmarkById, resolveBuildingCollision } from './world.js
 import { createPlayer, updatePlayer, damagePlayer, respawnPlayer, nearestToPlayer } from './player.js';
 import { createCar, updateCar, damageCar, chopValue, nearestCar } from './vehicles.js';
 import { spawnTraffic, updateTrafficCar, updatePed, crashTrafficCar } from './traffic.js';
-import { createWanted, addHeat, addHeatFor, updateWanted, clearWanted, spawnCopsForStars, updateCop, updateCopCar, createHeli, updateHeli, heliActive, wantedSummary, createRoadblockState, updateRoadblocks, roadblockBlocksCar, isFiveStar } from './police.js';
-import { createMissionState, startMission, updateMission, missionProgress, nextAvailableMission, totalEarned, createSideState, checkPackagePickup, startFare, updateFare, missionDef, MISSION_COUNT } from './missions.js';
-import { createLoadout, switchWeapon, giveWeapon, fireWeapon, punch, shootCar, weaponDef, tickLoadout, applyHit, startReload, shootHeli, setArmour, armourAbsorb } from './combat.js';
+import { createWanted, addHeat, addHeatFor, updateWanted, clearWanted, spawnCopsForStars, updateCop, updateCopCar, createHeli, updateHeli, heliActive, wantedSummary, createRoadblockState, updateRoadblocks, roadblockBlocksCar, isFiveStar, legendFor, wantedDisplay, heatForCrimeAt } from './police.js';
+import { createMissionState, startMission, updateMission, missionProgress, nextAvailableMission, totalEarned, createSideState, checkPackagePickup, startFare, updateFare, missionDef, MISSION_COUNT, totalMissionCount } from './missions.js';
+import { createLoadout, switchWeapon, giveWeapon, fireWeapon, punch, shootCar, weaponDef, tickLoadout, applyHit, startReload, shootHeli, setArmour, armourAbsorb, isHeadshot, silentKill } from './combat.js';
 import { createPlayerHeli, updatePlayerHeli, updatePoliceHeli, updatePoliceHeliFire, damagePoliceHeli, heliCanTakeOff, refuelHeli, padAt, nearestHeli } from './heli.js';
 import { updateSwat, damageSwat, updateFibCar, planRoadblocks } from './swat.js';
 import { createShopState, createSafehouseState, createVigilanteState, openShop, closeShop, shopCycle, selectedItem, buySelected, healAtSafehouse, sleepAtSafehouse, storeCarAtSafehouse, startVigilante, updateVigilante, damageVigilanteTarget, tickVigilante } from './shops.js';
@@ -21,8 +21,21 @@ import { createEventState, updateEvents, resolveEvent, raceOvertake, nearestEven
 import { createRenderer } from './render.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
-import { createInput, ACTION_INTERACT, ACTION_JUMP, ACTION_PAUSE, ACTION_CONFIRM, ACTION_SHOOT, ACTION_NITRO, ACTION_HORN, ACTION_SHOP, ACTION_DESCEND, ACTION_VIGILANTE } from './input.js';
+import { createInput, ACTION_INTERACT, ACTION_JUMP, ACTION_PAUSE, ACTION_CONFIRM, ACTION_SHOOT, ACTION_NITRO, ACTION_HORN, ACTION_SHOP, ACTION_DESCEND, ACTION_VIGILANTE, ACTION_SIDEJOB, ACTION_INTERIOR } from './input.js';
 import { saveGame, loadGame, hasSave, scoreOf } from './save.js';
+// r7: the new systems — a three-act story, living crowds, weather that
+// changes the driving, boats, enterable interiors, side jobs, particles
+// and slow-mo, and eight more missions (22 total).
+import { createStoryState, currentChapter, advanceChapter, startCutscene, skipCutsceneLine, storySummary, chapterReward } from './story.js';
+import { createCrowdState, updateCrowds, panicCrowd, crowdNear, crowdPeds, crowdCount } from './crowd.js';
+import { createWeatherState, updateWeather, weatherModifiers, heatRateMultiplier, chaseModifiers, weatherSummary } from './weather.js';
+import { createBoat, updateBoat, boatInWater, nearestDock } from './boats.js';
+import { createInteriorState, enterInterior, exitInterior, takeInteriorLoot, interiorAtDoor, stallNear, buyFromStall, interiorSummary } from './interiors.js';
+import { createSideJobsState, startSideJob, updateSideJob, abortSideJob, sideJobsSummary, SIDE_JOB_KINDS } from './sidejobs.js';
+import { createFxState, spawnParticles, updateParticles, addShake, updateShake, triggerSlowMo, updateSlowMo, registerHeadshot, muzzleFlash, updateFlashes, explode, splashAt, fxSummary } from './fx.js';
+import { createR7MissionState, startR7Mission, updateR7Mission, r7MissionProgress, nextR7Mission, totalR7Rewards, R7_MISSION_DEFS } from './missions-r7.js';
+import { createMarshal, updateMarshal, damageMarshal, marshalForLegend } from './swat.js';
+import { addSkill, updateSwimming } from './player.js';
 
 const MAX_FRAME = 0.25;
 const RACE_GATES = [
@@ -92,6 +105,23 @@ const game = {
   tailSpotted: 0,
   shopTimer: 0,
   lastRacePass: -99,
+  // r7: story, crowds, weather, boats, interiors, side jobs, fx, the
+  // eight r7 missions, the Harbor Marshal and the legend tracker.
+  story: createStoryState(),
+  crowd: createCrowdState(),
+  weatherState: createWeatherState(),
+  boats: [createBoat(470, 414, Math.PI / 2), createBoat(480, 230, 0)],
+  playerBoat: null,
+  boatsStolen: 0,
+  interiors: createInteriorState(),
+  sidejobs: createSideJobsState(),
+  sideJobKindIndex: 0,
+  fx: createFxState(),
+  r7missions: createR7MissionState(),
+  marshal: null,
+  prevHeat: 0,
+  storyBanner: null,
+  weatherNote: null,
 };
 
 function readBest() {
@@ -120,6 +150,9 @@ function announce(msg) { statusEl.textContent = msg; }
 function currentObjective() {
   const m = missionProgress(game.missions);
   if (m) return { x: m.stepX, z: m.stepZ, label: m.step };
+  // r7: when the base missions are done, the r7 mission is the objective.
+  const r7m = r7MissionProgress(game.r7missions);
+  if (r7m) return { x: r7m.stepX, z: r7m.stepZ, label: r7m.step };
   if (game.side.fare) {
     const f = game.side.fare;
     return f.pickedUp ? { x: f.toX, z: f.toZ, label: 'Drop off the fare' } : { x: f.fromX, z: f.fromZ, label: 'Pick up the fare' };
@@ -298,8 +331,8 @@ function contextAction() {
 
 function startNextMission() {
   const next = nextAvailableMission(game.missions);
-  if (!next) { hud.toast('All missions complete — you run this harbour now'); return; }
-  if (startMission(game.missions, next.id)) {
+  if (next) {
+    if (startMission(game.missions, next.id)) {
     hud.toast(`New mission: ${next.name} — ${next.brief}`);
     audio.mission();
     announce(`Mission started: ${next.name}. ${next.brief}`);
@@ -317,6 +350,21 @@ function startNextMission() {
     }
     if (next.id === 'skyhook') hud.toast('Take the helicopter from the Harbor Heliport (E to board)');
     if (next.id === 'ghost') hud.toast('Ghost run: stay clean — any heat blows the job');
+    }
+    return;
+  }
+  // r7: the base 14 are done — the eight r7 jobs open, starting with
+  // the Ferry Gambit in Act III.
+  const r7next = nextR7Mission(game.r7missions);
+  if (!r7next) { hud.toast('All 22 missions complete — you run this harbour now'); return; }
+  if (startR7Mission(game.r7missions, r7next.id)) {
+    hud.toast(`New mission: ${r7next.name} — ${r7next.brief}`);
+    audio.mission();
+    announce(`Mission started: ${r7next.name}. ${r7next.brief}`);
+    if (r7next.id === 'r7-last-ferry') spawnEnemies(414, 230, 4);
+    if (r7next.id === 'r7-bounty-hunter') spawnEnemies(-368, 46, 4);
+    if (r7next.id === 'r7-ferry-gambit') hud.toast('Take the boat from South Pier dock (E to board)');
+    if (r7next.id === 'r7-harbor-king') hud.toast('Harbor King: take Warehouse 9, the casino, the docks');
   }
 }
 
@@ -330,6 +378,24 @@ function missionContext(ctx) {
     audio.mission();
     audio.cash();
     announce(`Mission complete: ${ev.name}. Earned ${formatMoney(ev.reward)}.`);
+    // r7: a finished mission can close a story chapter — the cutscene
+    // for the next chapter plays, and the chapter bonus lands.
+    const allDone = [...game.missions.completed, ...game.r7missions.completed];
+    const chEv = advanceChapter(game.story, allDone);
+    if (chEv) {
+      if (chEv.type === 'chapter-complete') {
+        const bonus = chapterReward(chEv.chapter.id);
+        game.player.cash += bonus;
+        game.storyBanner = `Chapter complete: ${chEv.chapter.title} — next: ${chEv.next.title} (+${formatMoney(bonus)})`;
+        hud.toast(game.storyBanner);
+        audio.chapterFanfare();
+        startCutscene(game.story, chEv.next.id);
+      } else if (chEv.type === 'story-complete') {
+        game.storyBanner = 'STORY COMPLETE — Harbor King. The harbour is yours.';
+        hud.toast(game.storyBanner);
+        audio.chapterFanfare();
+      }
+    }
     saveGame(game);
   } else if (ev.type === 'failed') {
     hud.toast(`Mission failed: ${ev.reason}`);
@@ -344,10 +410,27 @@ function stepWorld(dt, input, actions) {
   const p = game.player;
   game.playSeconds += dt;
   game.dayTime = (game.dayTime + dt / 360) % 1;
-  game.weatherTimer -= dt;
-  if (game.weatherTimer <= 0) {
-    game.weatherTimer = 80 + rng() * 60;
-    game.weather = rng() < 0.55 ? 'clear' : rng() < 0.7 ? 'rain' : 'fog';
+  // r7: weather is a system now, not a dice roll — it changes grip,
+  // visibility, patrol strictness and whether the heli can fly.
+  const weatherEv = updateWeather(game.weatherState, dt, rng, game.dayTime);
+  game.weather = game.weatherState.current;
+  if (weatherEv) {
+    game.weatherNote = `${weatherEv.label} — ${weatherModifiers(game.weather, game.weatherState.intensity).label}`;
+    hud.toast(game.weatherNote);
+    if (game.weather === 'storm') audio.thunder();
+  }
+  // r7: crowds drift, gather and panic; side jobs tick; fx decays.
+  updateCrowds(game.crowd, p, dt, rng, [{ x: p.x, z: p.z, radius: game.wanted.stars > 0 ? 30 : 0 }]);
+  updateParticles(game.fx, dt);
+  updateFlashes(game.fx, dt);
+  updateSlowMo(game.fx, dt);
+  updateShake(game.fx, dt, game.playSeconds);
+  updateSwimming(p, dt);
+  // r7: the Harbor Marshal hunts legends — rep 800+ and five stars.
+  if (!game.marshal && marshalForLegend(p.rep) && game.wanted.stars >= 5) {
+    game.marshal = createMarshal(p.x + 40, p.z + 40);
+    hud.toast('The Harbor Marshal is hunting you — 260 HP, and he does not give up');
+    audio.alarm();
   }
   game.side.chopCooldown = Math.max(0, game.side.chopCooldown - dt);
   game.saveTimer += dt;
@@ -435,6 +518,18 @@ function stepWorld(dt, input, actions) {
     if (h.altitude === 0 && h.verticalSpeed <= 0 && h.speed < 1) {
       // Landed: the heli is parked again.
     }
+  } else if (game.playerBoat) {
+    // r7: sailing — the boat slides, turns slow, and leaves a wake.
+    // Driving skill grows behind the wheel; the boat engine hums.
+    const boat = game.playerBoat;
+    const mv = input.move();
+    updateBoat(boat, { throttle: mv.moveY, steer: -mv.moveX }, dt);
+    p.x = boat.x;
+    p.z = boat.z;
+    p.heading = boat.heading;
+    addSkill(p, 'driving', dt * 0.1);
+    audio.boatEngine(Math.abs(boat.speed) / 30);
+    if (Math.abs(boat.speed) > 8) splashAt(game.fx, boat.x - Math.sin(boat.heading) * 3, boat.z - Math.cos(boat.heading) * 3, Math.abs(boat.speed));
   } else if (game.playerCar) {
     const car = game.playerCar;
     const mv = input.move();
@@ -488,7 +583,14 @@ function stepWorld(dt, input, actions) {
 
   // Interact: enter/exit car or heli, start mission at the pier, grab case.
   if ((actions & ACTION_INTERACT) !== 0) {
-    if (game.playerHeli.occupied) {
+    if (game.playerBoat) {
+      // Leaving the boat: step onto the nearest dock, not into the water.
+      const dock = nearestDock(game.playerBoat.x, game.playerBoat.z);
+      game.playerBoat.isPlayerCar = false;
+      game.playerBoat = null;
+      if (dock) { p.x = dock.dock.x - 8; p.z = dock.dock.z; }
+      hud.toast('Off the boat — dry land again');
+    } else if (game.playerHeli.occupied) {
       // Land first: exiting mid-air is not an option the game offers.
       if (game.playerHeli.altitude < 2) {
         game.playerHeli.occupied = false;
@@ -505,7 +607,23 @@ function stepWorld(dt, input, actions) {
       const pier = landmarkById(city, 'pier');
       const m = missionProgress(game.missions);
       const heliNear = nearestHeli([game.playerHeli], p.x, p.z, 7);
-      if (heliNear && game.playerHeli.altitude < 2) {
+      // r7: boats — E boards the nearest boat at the dock; taking one
+      // that is not yours costs a star, and the city notices the wake.
+      const nearBoat = game.boats.find((b) => !b.wrecked && dist(p.x, p.z, b.x, b.z) < 6) || null;
+      if (nearBoat && !game.playerBoat) {
+        game.playerBoat = nearBoat;
+        nearBoat.isPlayerCar = true;
+        if (!nearBoat.stolen) {
+          nearBoat.stolen = true;
+          game.boatsStolen += 1;
+          addHeat(game.wanted, 1, game.playSeconds);
+          hud.toast('Boat taken — the harbour police noticed (+1 star)');
+          audio.fail();
+        } else {
+          hud.toast('Boat — WASD sails, the water is yours');
+        }
+        audio.foghorn();
+      } else if (heliNear && game.playerHeli.altitude < 2) {
         game.playerHeli.occupied = true;
         if (!game.playerHeli.stolen) {
           game.playerHeli.stolen = true;
@@ -539,6 +657,42 @@ function stepWorld(dt, input, actions) {
   if (input.isHeld('reload')) startReload(game.loadout);
   if (input.isHeld('garage')) contextActionOnce();
   if ((actions & ACTION_HORN) !== 0) audio.horn();
+  // r7: Q starts the next side job (taxi → ambulance → courier → bounty
+  // → fishing, rotating), T enters a doorway or buys at a market stall.
+  if ((actions & ACTION_SIDEJOB) !== 0) {
+    if (game.sidejobs.active) {
+      hud.toast(`${game.sidejobs.active.name} already active — finish it first`);
+    } else {
+      const kind = SIDE_JOB_KINDS[game.sideJobKindIndex % SIDE_JOB_KINDS.length].id;
+      game.sideJobKindIndex += 1;
+      const job = startSideJob(game.sidejobs, kind, rng, city);
+      if (job) hud.toast(`Side job: ${job.name} — green marker on the map`);
+    }
+  }
+  if ((actions & ACTION_INTERIOR) !== 0) {
+    if (game.interiors.current) {
+      const out = exitInterior(game.interiors, p);
+      if (out.ok) hud.toast(`Left ${out.interior.name}`);
+    } else {
+      const door = interiorAtDoor(p.x, p.z, 6);
+      if (door) {
+        const res = enterInterior(game.interiors, door.id, p);
+        if (res.ok) {
+          hud.toast(`Inside: ${res.interior.name} — ${res.interior.description}`);
+          audio.shopBell();
+        }
+      } else {
+        const stall = stallNear(p.x, p.z, 5);
+        if (stall) {
+          const res = buyFromStall(stall, p);
+          hud.toast(res.ok ? `Bought: ${stall.goods}` : `Cannot buy: ${res.reason}`);
+          if (res.ok) audio.cash();
+        } else {
+          hud.toast('No doorway or stall here — doors glow gold at night');
+        }
+      }
+    }
+  }
 
   // Shooting / punching.
   tickLoadout(game.loadout, dt);
@@ -588,8 +742,23 @@ function stepWorld(dt, input, actions) {
       const res = fireWeapon(game.loadout, p.x, p.z, p.heading, targets);
       if (res.fired) {
         audio.shot();
-        addHeat(game.wanted, 0.4, game.playSeconds);
+        muzzleFlash(game.fx, p.x, 1.4, p.z, p.heading);
+        spawnParticles(game.fx, 'muzzle', p.x, 1.4, p.z, 3, 2);
+        // r7: gunfire panics the crowd — the street empties around you.
+        panicCrowd(game.crowd, p.x, p.z, 40 + game.wanted.stars * 6);
+        // The silenced Whisper builds no heat: a quiet kill stays quiet.
+        if (!silentKill(game.loadout)) addHeat(game.wanted, 0.4, game.playSeconds);
         for (const h of res.hits) {
+          // r7: a long straight shot is a headshot — double damage, and
+          // past 30 m it drops the world into slow motion.
+          if (isHeadshot(h.along, 0.1, game.loadout.current)) {
+            const hs = registerHeadshot(game.fx, h.along);
+            if (hs.slowMo) { audio.slowMo(); audio.headshotDing(); hud.toast('HEADSHOT — slow-mo'); }
+            h.damage = h.damage * 2;
+            addSkill(p, 'shooting', 2);
+          } else {
+            addSkill(p, 'shooting', 0.5);
+          }
           if (h.target.kind === 'swat' && h.target.ref) {
             damageSwat(h.target.ref, h.damage);
             if (h.target.ref.dead) registerKill(h.target);
@@ -612,6 +781,9 @@ function stepWorld(dt, input, actions) {
   if (input.isHeld('w3')) switchWeapon(game.loadout, 'smg');
   if (input.isHeld('w4')) switchWeapon(game.loadout, 'shotgun');
   if (input.isHeld('w5')) switchWeapon(game.loadout, 'rifle');
+  // r7: 6 revolver, 7 silenced Whisper.
+  if (input.isHeld('w6')) switchWeapon(game.loadout, 'revolver');
+  if (input.isHeld('w7')) switchWeapon(game.loadout, 'whisper');
 
   // Gang enemies shoot back.
   for (const e of game.enemies) {
@@ -719,6 +891,23 @@ function stepWorld(dt, input, actions) {
     }
     if (unit.state === 'gone' || unit.car.wrecked) game.fibCars.splice(i, 1);
   }
+  // r7: the Marshal on foot — he shoots, and he arrests faster than SWAT.
+  if (game.marshal) {
+    const res = updateMarshal(game.marshal, p, dt);
+    if (res === 'busted') {
+      game.deathKind = 'busted';
+      return 'over';
+    }
+    if (res === 'shot') {
+      const split = armourAbsorb(game.loadout, 13);
+      if (split.healthDamage > 0) damagePlayer(p, split.healthDamage);
+      hud.toast('The Marshal is firing on you!');
+    }
+    if (game.marshal.dead || game.marshal.state === 'gone' || game.wanted.stars === 0) {
+      if (game.marshal.dead) { p.rep += 40; hud.toast('Marshal down — the harbour just got quieter (+40 rep)'); }
+      game.marshal = null;
+    }
+  }
   // Helicopter spotlight calls cops in: handled by spawn logic above.
 
   // Packages.
@@ -739,6 +928,18 @@ function stepWorld(dt, input, actions) {
       hud.toast(`Fare paid ${formatMoney(fEv.pay)}`);
       audio.cash();
       if (mNow && mNow.id === 'night-shift') missionContext({ x: p.x, z: p.z, taxiDone: 1, dt, wantedStars: game.wanted.stars });
+    }
+  }
+
+  // r7: side jobs tick — a completed leg pays out, a finished job
+  // chains into the next leg or closes with a bonus.
+  if (game.sidejobs.active) {
+    const sjEv = updateSideJob(game.sidejobs, { x: p.x, z: p.z, dt, inCar: !!game.playerCar });
+    if (sjEv) {
+      if (sjEv.type === 'sidejob-pickup') hud.toast('Passenger aboard — green marker is the destination');
+      if (sjEv.type === 'sidejob-leg') { p.cash += sjEv.pay; hud.toast(`Leg done — ${formatMoney(sjEv.pay)} (${sjEv.progress}/${sjEv.needed})`); audio.cash(); }
+      if (sjEv.type === 'sidejob-complete') { p.cash += sjEv.pay; hud.toast(`Side job complete — ${formatMoney(sjEv.pay)}`); audio.cash(); audio.mission(); }
+      if (sjEv.type === 'sidejob-failed') { hud.toast(`Side job failed: ${sjEv.reason}`); audio.fail(); }
     }
   }
 
@@ -765,6 +966,42 @@ function stepWorld(dt, input, actions) {
       tailSpotted: game.tailSpotted > 1,
     });
     game.grabbed = false;
+  }
+  // r7: the eight r7 missions run on the same frame — same context,
+  // plus the boat and the escort count.
+  const r7m = r7MissionProgress(game.r7missions);
+  if (r7m) {
+    let gatesPassed = 0;
+    if (r7m.id === 'r7-street-champion' && game.raceGate > 0) {
+      gatesPassed = game.raceGate;
+      game.raceGate = 0;
+    }
+    const ev = updateR7Mission(game.r7missions, {
+      x: p.x, z: p.z,
+      inCar: !!game.playerCar,
+      carModel: game.playerCar ? game.playerCar.model : null,
+      wantedStars: game.wanted.stars,
+      grabbed: game.grabbed,
+      raceGatesPassed: gatesPassed,
+      dt,
+      inBoat: !!game.playerBoat,
+      inHeli: !!game.playerHeli.occupied,
+    });
+    if (ev && ev.type === 'complete') {
+      p.cash += ev.reward;
+      p.rep += 15;
+      hud.toast(`Mission complete: ${ev.name} — ${formatMoney(ev.reward)}`);
+      audio.mission();
+      audio.cash();
+      announce(`Mission complete: ${ev.name}. Earned ${formatMoney(ev.reward)}.`);
+      saveGame(game);
+    } else if (ev && ev.type === 'failed') {
+      hud.toast(`Mission failed: ${ev.reason}`);
+      audio.fail();
+    } else if (ev && ev.type === 'fare') {
+      hud.toast(`Patient ${ev.delivered} delivered`);
+      audio.cash();
+    }
   }
 
   // r6: intervening in a live city event pays out — catch the robber,
@@ -836,14 +1073,22 @@ function registerKill(target) {
 }
 
 function hudState() {
-  const m = missionProgress(game.missions);
+  const m = missionProgress(game.missions) || r7MissionProgress(game.r7missions);
   const gunshop = landmarkById(city, 'gunshop');
   const nearShop = gunshop && dist(game.player.x, game.player.z, gunshop.x, gunshop.z) < 16;
+  const ch = currentChapter(game.story);
+  const prevHeat = game.prevHeat;
+  game.prevHeat = game.wanted.heat;
   return {
     player: game.player,
     playerCar: game.playerCar,
     playerHeli: game.playerHeli.occupied ? game.playerHeli : null,
-    wanted: wantedSummary(game.wanted),
+    wanted: { ...wantedSummary(game.wanted), direction: game.wanted.heat > prevHeat + 0.05 ? 'rising' : game.wanted.heat < prevHeat - 0.05 ? 'falling' : 'steady' },
+    legend: legendFor(game.player.rep),
+    storyChapter: ch ? `${ch.title} — ${ch.brief.slice(0, 60)}…` : 'Epilogue — Harbor King',
+    weatherHint: game.weatherNote,
+    sideJob: game.sidejobs.active,
+    slowMo: game.fx.slowMo > 0,
     dayTime: game.dayTime,
     weather: game.weather,
     cops: game.cops,
@@ -861,8 +1106,8 @@ function hudState() {
     stamina: Math.round(game.player.stamina ?? 100),
     score: game.score,
     bestScore: game.bestScore,
-    missionsDone: game.missions.completed.length,
-    missionsTotal: MISSION_COUNT,
+    missionsDone: game.missions.completed.length + game.r7missions.completed.length,
+    missionsTotal: totalMissionCount(),
     packagesFound: game.side.packagesFound,
     packagesTotal: game.side.packagesTotal || 16,
     faresDone: game.side.faresDone,
@@ -899,6 +1144,14 @@ function renderState() {
     events: game.events.active,
     vigilante: game.vigilante.active,
     time: game.playSeconds,
+    // r7: boats, crowd peds, fx particles, the Marshal and the story
+    // banner — the renderer draws them, the HUD reads them.
+    boats: game.boats,
+    crowdPeds: crowdPeds(game.crowd),
+    crowdGroups: game.crowd.groups,
+    fx: game.fx,
+    marshal: game.marshal,
+    interiors: city.r7?.interiors || [],
   };
 }
 
@@ -938,6 +1191,25 @@ function resetRun() {
   game.tailCar = null;
   game.tailSpotted = 0;
   game.lastRacePass = -99;
+  // r7: a fresh run resets the r7 systems too — story back to chapter
+  // one, crowds gone, weather clear, boats back at their docks, the
+  // Marshal gone, slow-mo off.
+  game.story = createStoryState();
+  game.crowd = createCrowdState();
+  game.weatherState = createWeatherState();
+  game.weather = 'clear';
+  game.boats = [createBoat(470, 414, Math.PI / 2), createBoat(480, 230, 0)];
+  game.playerBoat = null;
+  game.boatsStolen = 0;
+  game.interiors = createInteriorState();
+  game.sidejobs = createSideJobsState();
+  game.sideJobKindIndex = 0;
+  game.fx = createFxState();
+  game.r7missions = createR7MissionState();
+  game.marshal = null;
+  game.prevHeat = 0;
+  game.storyBanner = null;
+  game.weatherNote = null;
 }
 
 function startGame() {

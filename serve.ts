@@ -40,6 +40,9 @@ const MIME = {
 // r6: `?shot=day|night|mission|chase` stages a deterministic screenshot
 // scene instead of the title screen; the server needs no special case
 // for it — main.js reads the query string in the browser.
+// r7: the same four shots now stage the r7 city — boats at the pier,
+// night-market stalls, crowds on the sidewalks and the Marshal's
+// five-star response in the rain. Nothing else changes server-side.
 
 createServer((request, response) => {
   let pathname;

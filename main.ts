@@ -1,7 +1,10 @@
 // Ember Harbor — make.fun gta6-01 entry point (Node 22, standard library only).
-// r6 "FIVE-STAR HARBOR": 14 story missions, a flyable helicopter, 5-star
-// SWAT/FIB response with roadblocks, a gun shop, safehouses, vigilante work
-// and living ambient events across Rust Harbor's nine districts.
+// r7 "SEVEN-STAR HARBOR": 22 missions across a full three-act story, a
+// flyable helicopter, boats on the harbour, 5-star SWAT/FIB response with
+// roadblocks, a gun shop, safehouses, vigilante work, side jobs (taxi,
+// ambulance, street-race series, bounties), living crowds, real weather
+// that changes the driving, enterable interiors, a night market, and a
+// wanted system that grows into a seven-star legend.
 // The game is the static game/ folder beside this file: a Three.js open-world
 // crime game that runs in a desktop browser with zero network requests at
 // runtime. This script copies game/ and screenshots/ into the output dir and
@@ -10,10 +13,14 @@
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 // (Outside the grader's container MAKEFUN_OUTPUT_DIR stands in for /output.)
 // Serve the game locally with `node serve.ts`, then open http://localhost:8080.
-// r6 systems at a glance: heli.js (player + police helicopters), shops.js
-// (gun shop, safehouses, vigilante jobs), events.js (ambient city events),
-// swat.js (SWAT/FIB units and roadblocks), missions-extra.js (6 new story
-// jobs: Skyhook, Midnight Run, Ghost, Turf War, Tail Job, Harbor Heist).
+// r7 systems at a glance: story.js (three-act campaign, 8 chapters),
+// weather.js (rain slick, fog sight, night patrols, storm grounding),
+// crowd.js (groups, panic, crossings), boats.js (boats + 6 new vehicle
+// models), interiors.js (6 enterable rooms + night-market stalls),
+// sidejobs.js (taxi, ambulance, race series, courier, bounties, fishing),
+// fx.js (particles, shake, slow-mo headshots), missions-r7.js (8 more
+// jobs: Ferry Gambit, Last Ferry, Harbor King, Market Courier, Ambulance
+// Hero, Street Champion, Bounty Hunter, Fishing Charter — 22 total).
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -231,6 +231,8 @@ export const HELI_PADS = [
   { id: 'heliport', name: 'Harbor Heliport', x: 368, z: -138, radius: 10 },
   { id: 'tower-roof', name: 'Harborview Tower Roof', x: 322, z: -46, radius: 9 },
   { id: 'hospital-roof', name: 'St. Anselm Roof', x: -322, z: 138, radius: 9 },
+  // r7: a fourth pad on the docks crane platform, for the Ferry Gambit.
+  { id: 'docks-crane', name: 'Docks Crane Platform', x: 400, z: 138, radius: 9 },
 ];
 
 export function padAt(x, z) {
@@ -242,4 +244,27 @@ export function padAt(x, z) {
 
 export function onPad(heli) {
   return padAt(heli.x, heli.z);
+}
+
+// r7: storms ground the helicopter — the pilot can feel it in the rotor
+// before the HUD says it. Night landings are harder: the pad lights are
+// the only guide, so the landing check is stricter after dark.
+export function canFlyNow(heli, weather, dayTime) {
+  if (heli.wrecked || heli.fuel <= 0) return { ok: false, reason: 'heli not airworthy' };
+  if (weather === 'storm') return { ok: false, reason: 'storm — heli grounded' };
+  return { ok: true };
+}
+
+export function landingDifficulty(dayTime, weather) {
+  let d = 1;
+  if (dayTime < 0.22 || dayTime >= 0.85) d += 0.5;
+  if (weather === 'rain') d += 0.4;
+  if (weather === 'fog') d += 0.6;
+  return d;
+}
+
+export function heliSkillGain(heli, dt) {
+  // Flying time is flying skill: 1 point per 10 s airborne.
+  if (heli.altitude > 5) return dt / 10;
+  return 0;
 }

@@ -151,6 +151,21 @@ export function createAudio() {
     eventBlip() { tone(740, 0.08, 'triangle', 0.14); setTimeout(() => tone(1108, 0.1, 'triangle', 0.12), 70); },
     rifleShot() { noise(0.22, 0.5, 3200); tone(120, 0.14, 'square', 0.26, 45); },
     heliDown() { noise(0.8, 0.5, 500); tone(90, 0.7, 'sawtooth', 0.22, 40); },
+    // r7: boat foghorn, thunder, the slow-mo whoosh of a long-range
+    // headshot, crowd murmur, and story stings for chapters.
+    foghorn() { tone(110, 0.9, 'sine', 0.25, 90); setTimeout(() => tone(110, 0.9, 'sine', 0.2, 90), 1100); },
+    thunder() { noise(1.2, 0.5, 300); tone(60, 1.0, 'sine', 0.2, 30); },
+    slowMo() { tone(880, 0.5, 'sine', 0.18, 220); noise(0.4, 0.12, 4000); },
+    headshotDing() { tone(1568, 0.12, 'sine', 0.22); setTimeout(() => tone(2093, 0.2, 'sine', 0.2), 90); },
+    crowdMurmur() { noise(0.5, 0.06, 800); },
+    boatEngine(speedNorm) {
+      if (!ensure()) return;
+      engineOsc.frequency.setTargetAtTime(40 + (speedNorm || 0) * 60, ctx.currentTime, 0.1);
+      engineGain.gain.setTargetAtTime(muted ? 0 : 0.05 + (speedNorm || 0) * 0.06, ctx.currentTime, 0.1);
+    },
+    storySting() { [392, 523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, 0.2, 'triangle', 0.2), i * 130)); },
+    chapterFanfare() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.22, 'triangle', 0.22), i * 140)); },
+    explosion() { noise(0.9, 0.55, 400); tone(70, 0.8, 'sawtooth', 0.25, 35); },
     startMusic() {
       if (!ensure() || musicOn) return;
       musicOn = true;

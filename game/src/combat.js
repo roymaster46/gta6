@@ -16,6 +16,9 @@ export function createLoadout() {
       shotgun: { ammo: 0, owned: false },
       // r6: the rifle starts locked behind the gun shop, not in your pocket.
       rifle: { ammo: 0, owned: false },
+      // r7: the revolver and the silenced Whisper — also shop-locked.
+      revolver: { ammo: 0, owned: false },
+      whisper: { ammo: 0, owned: false },
     },
     cooldown: 0,
     reloading: false,
@@ -197,6 +200,32 @@ export function ammoText(loadout) {
   const def = weaponDef(loadout.current);
   if (loadout.current === 'fists') return '—';
   return String(loadout.weapons[loadout.current].ammo);
+}
+
+// r7: headshots — a hit is a headshot when the target is far and the
+// shot is straight down the line. Headshots deal double and, past 30 m,
+// trigger slow motion (see fx.js registerHeadshot).
+export function isHeadshot(distance, sideOffset, weaponId) {
+  if (weaponId === 'fists' || weaponId === 'shotgun') return false;
+  return distance >= 12 && sideOffset < 0.25;
+}
+
+export function headshotDamage(baseDamage, weaponId) {
+  if (weaponId === 'revolver') return baseDamage * 2;
+  return baseDamage * 2;
+}
+
+export function silentKill(loadout) {
+  // The Whisper builds no heat: a silent kill is the Ghost job's friend.
+  return loadout.current === 'whisper';
+}
+
+export function weaponRange(weaponId) {
+  return weaponDef(weaponId).range;
+}
+
+export function weaponList(loadout) {
+  return Object.keys(loadout.weapons).filter((id) => loadout.weapons[id].owned);
 }
 
 export function totalAmmo(loadout) {

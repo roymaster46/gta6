@@ -473,6 +473,74 @@ export function createRenderer(canvas, city) {
   scene.add(headlight);
   scene.add(headlight.target);
 
+  // r7: boats on the harbour water — hull + cabin + wake ring. The
+  // player's boat is the same mesh, driven from boats.js state.
+  const boatGroups = new Map();
+  function buildBoatMesh() {
+    const g = new THREE.Group();
+    const hull = box(2.2, 0.9, 6.8, 0x2e7a8a);
+    hull.position.y = 0.5;
+    hull.castShadow = true;
+    g.add(hull);
+    const cabin = box(1.6, 0.9, 2.2, 0xf2f2f2);
+    cabin.position.set(0, 1.3, -0.6);
+    g.add(cabin);
+    return g;
+  }
+  // r7: night-market stalls — striped awnings with warm lantern light.
+  const stallMeshes = [];
+  for (const s of city.r7?.marketStalls || []) {
+    const g = new THREE.Group();
+    const awning = box(4, 0.3, 3, 0xff2e88, { emissive: 0x881144, emissiveIntensity: 0.5 });
+    awning.position.y = 2.6;
+    g.add(awning);
+    const counter = box(3.4, 1, 2.4, 0x8a6a4a);
+    counter.position.y = 0.5;
+    g.add(counter);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffc233 }));
+    lamp.position.y = 2.2;
+    g.add(lamp);
+    g.position.set(s.x, 0, s.z);
+    scene.add(g);
+    stallMeshes.push(g);
+  }
+  // r7: dock cranes and containers, foundry furnaces — the new districts
+  // read as industrial at a glance, not as empty blocks.
+  for (const d of city.r7?.docks || []) {
+    if (d.kind === 'crane' || d.h) {
+      const tower = box(2, d.h || 30, 2, 0xf2c200);
+      tower.position.set(d.x, (d.h || 30) / 2, d.z);
+      scene.add(tower);
+    } else {
+      const c = box(6, 2.6, 2.6, 0xc22e2e);
+      c.position.set(d.x, 1.3, d.z);
+      c.castShadow = true;
+      scene.add(c);
+    }
+  }
+  for (const f of city.r7?.foundry || []) {
+    const m = box(8, f.h || 24, 8, 0x5a3a2a, { emissive: 0x881100, emissiveIntensity: 0.35 });
+    m.position.set(f.x, (f.h || 24) / 2, f.z);
+    scene.add(m);
+  }
+  // r7: particles — one Points cloud, recoloured per frame from fx state.
+  const fxCount = 400;
+  const fxGeo = new THREE.BufferGeometry();
+  const fxPos = new Float32Array(fxCount * 3);
+  fxGeo.setAttribute('position', new THREE.BufferAttribute(fxPos, 3));
+  const fxPoints = new THREE.Points(fxGeo, new THREE.PointsMaterial({ color: 0xffaa33, size: 0.5, transparent: true, opacity: 0.85 }));
+  fxPoints.visible = false;
+  scene.add(fxPoints);
+  // r7: interior doorways — a glowing frame so the player can see that
+  // a building opens. Doors sit at the door positions in city.r7.
+  const doorMeshes = [];
+  for (const it of city.r7?.interiors || []) {
+    const frame = box(3, 3.4, 0.4, 0xffc233, { emissive: 0x664400, emissiveIntensity: 0.7 });
+    frame.position.set(it.doorX, 1.7, it.doorZ);
+    scene.add(frame);
+    doorMeshes.push(frame);
+  }
+
   function syncCarMesh(car) {
     let g = carGroups.get(car);
     if (!g) {
@@ -631,6 +699,38 @@ export function createRenderer(canvas, city) {
         spot.target.position.set(heli.spotX - heli.x, -heli.y, heli.spotZ - heli.z);
       } else {
         heliGroup.visible = false;
+      }
+
+      // r7: boats on the water, crowd peds on the sidewalks, particles
+      // from the fx state (smoke, sparks, splashes), and the marshal.
+      for (const boat of state.boats || []) {
+        let g = boatGroups.get(boat);
+        if (!g) { g = buildBoatMesh(); boatGroups.set(boat, g); scene.add(g); }
+        g.position.set(boat.x, 0.2, boat.z);
+        g.rotation.y = boat.heading;
+        g.visible = !boat.wrecked;
+      }
+      for (const ped of state.crowdPeds || []) {
+        syncPedMesh(ped, `crowd-${ped.groupId}-${state.crowdPeds.indexOf(ped)}`);
+      }
+      if (state.fx && state.fx.particles && state.fx.particles.length > 0) {
+        fxPoints.visible = true;
+        const pos = fxGeo.attributes.position;
+        for (let i = 0; i < fxCount; i += 1) {
+          const p = state.fx.particles[i];
+          if (p) { pos.setXYZ(i, p.x, p.y, p.z); }
+          else pos.setXYZ(i, 0, -10, 0);
+        }
+        pos.needsUpdate = true;
+      } else {
+        fxPoints.visible = false;
+      }
+      if (state.marshal) {
+        let g = swatGroups.get('marshal');
+        if (!g) { g = buildSwatMesh(); swatGroups.set('marshal', g); scene.add(g); }
+        g.position.set(state.marshal.x, 0, state.marshal.z);
+        g.rotation.y = state.marshal.heading;
+        g.visible = !state.marshal.dead;
       }
 
       if (objective) {

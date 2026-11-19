@@ -217,3 +217,65 @@ export function damageRoadblock(block, amount) {
 export function clearRoadblocks(blocks) {
   return blocks.filter((b) => b.active);
 }
+
+// r7: the Harbor Marshal — a single elite unit the PD sends when the
+// legend hits six stars. Faster than SWAT, tougher, and he does not
+// give up: he hunts the player's last known position for a full minute.
+export function createMarshal(x, z) {
+  return {
+    x, z, heading: 0, speed: 0,
+    state: 'chase', stateTimer: 0,
+    lastSeenX: x, lastSeenZ: z,
+    health: 260, maxHealth: 260,
+    shootTimer: 0.4, arrestTimer: 0,
+    dead: false, kind: 'marshal',
+  };
+}
+
+export function updateMarshal(unit, player, dt) {
+  if (unit.dead) return null;
+  const d = dist(unit.x, unit.z, player.x, player.z);
+  if (unit.state === 'chase') {
+    unit.lastSeenX = player.x;
+    unit.lastSeenZ = player.z;
+    unit.stateTimer += dt;
+    if (d < 1.6) {
+      unit.arrestTimer += dt;
+      if (unit.arrestTimer > 1.2) return 'busted';
+      return null;
+    }
+    unit.arrestTimer = 0;
+    const target = Math.atan2(player.x - unit.x, player.z - unit.z);
+    unit.heading += clamp(wrapAngle(target - unit.heading), -6 * dt, 6 * dt);
+    unit.speed = 11.4;
+    unit.x += Math.sin(unit.heading) * unit.speed * dt;
+    unit.z += Math.cos(unit.heading) * unit.speed * dt;
+    unit.shootTimer -= dt;
+    if (d < 52 && unit.shootTimer <= 0) {
+      unit.shootTimer = 0.9;
+      return 'shot';
+    }
+    if (d > 100) { unit.state = 'search'; unit.stateTimer = 0; }
+  } else if (unit.state === 'search') {
+    unit.stateTimer += dt;
+    const target = Math.atan2(unit.lastSeenX - unit.x, unit.lastSeenZ - unit.z);
+    unit.heading += clamp(wrapAngle(target - unit.heading), -4 * dt, 4 * dt);
+    unit.speed = 7;
+    unit.x += Math.sin(unit.heading) * unit.speed * dt;
+    unit.z += Math.cos(unit.heading) * unit.speed * dt;
+    if (d < 30) { unit.state = 'chase'; unit.stateTimer = 0; }
+    else if (unit.stateTimer > 60) unit.state = 'gone';
+  }
+  return null;
+}
+
+export function damageMarshal(unit, amount) {
+  if (unit.dead) return false;
+  unit.health = Math.max(0, unit.health - amount);
+  if (unit.health <= 0) { unit.dead = true; unit.state = 'gone'; }
+  return true;
+}
+
+export function marshalForLegend(rep) {
+  return rep >= 800;
+}

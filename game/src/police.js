@@ -218,6 +218,67 @@ export function wantedTierLabel(stars) {
   return 'Clean';
 }
 
+// r7: the seven-star legend — permanent reputation tiers (1–7) that sit
+// above the 0–5 wanted stars. Heat is the chase; legend is the name.
+// Legend grows with rep and never decays; at 6+ the city treats Vex as
+// a harbour legend, and the final missions unlock.
+export function legendFor(rep) {
+  const tiers = [
+    { stars: 1, name: 'Nobody', rep: 0 },
+    { stars: 2, name: 'Small Name', rep: 50 },
+    { stars: 3, name: 'Known Face', rep: 150 },
+    { stars: 4, name: 'Harbour Regular', rep: 300 },
+    { stars: 5, name: 'Most Wanted', rep: 500 },
+    { stars: 6, name: 'Harbour Legend', rep: 800 },
+    { stars: 7, name: 'SEVEN-STAR', rep: 1200 },
+  ];
+  let tier = tiers[0];
+  for (const t of tiers) if (rep >= t.rep) tier = t;
+  return tier;
+}
+
+export function legendStars(rep) {
+  return legendFor(rep).stars;
+}
+
+export function legendLabel(rep) {
+  return legendFor(rep).name;
+}
+
+// Live wanted UI: stars rise/fall with a direction arrow, and the HUD
+// shows whether the heat is climbing, holding or cooling off.
+export function wantedDirection(w, prevHeat) {
+  if (w.heat > (prevHeat || 0) + 0.05) return 'rising';
+  if (w.heat < (prevHeat || 0) - 0.05) return 'falling';
+  return 'steady';
+}
+
+export function wantedDisplay(w, prevHeat) {
+  return {
+    stars: w.stars,
+    heat: Math.round(w.heat * 100) / 100,
+    direction: wantedDirection(w, prevHeat),
+    band: notorietyBand(w.notoriety),
+    tier: responseTier(w.stars),
+    tierLabel: wantedTierLabel(w.stars),
+    legend: legendFor(w.notoriety),
+  };
+}
+
+// Night patrols are stricter: the same crime builds heat faster after
+// dark, and roadblocks appear a star earlier.
+export function nightPatrolMultiplier(dayTime) {
+  return (dayTime < 0.22 || dayTime >= 0.85) ? 1.35 : dayTime >= 0.68 && dayTime < 0.85 ? 1.15 : 1;
+}
+
+export function heatForCrimeAt(w, crime, now, dayTime, weather) {
+  let amount = (WANTED.crimes && WANTED.crimes[crime]) ?? 1;
+  amount *= nightPatrolMultiplier(dayTime);
+  if (weather === 'rain') amount *= 0.9;
+  if (weather === 'fog') amount *= 0.85;
+  return addHeat(w, amount, now);
+}
+
 export function updateHeli(heli, player, dt) {
   if (!heli.active) return heli;
   heli.angle += dt * 0.35;

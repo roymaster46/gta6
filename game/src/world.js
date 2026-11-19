@@ -149,9 +149,39 @@ export function generateCity(seed) {
   ];
 
   // The harbour water strip hugs the east edge; the pier reaches into it.
+  // r7: the city also carries its new districts as data — night-market
+  // stalls, dock cranes and containers, foundry furnaces, and the six
+  // enterable interiors (doors are real positions the player can use).
+  const r7 = {
+    marketStalls: [
+      { id: 'noodles', x: -62, z: -230 }, { id: 'lanterns', x: -46, z: -246 },
+      { id: 'fish', x: -30, z: -230 }, { id: 'tea', x: -46, z: -214 },
+      { id: 'trinkets', x: -62, z: -214 }, { id: 'records', x: -30, z: -246 },
+    ],
+    docks: [
+      { id: 'crane-1', x: 400, z: 92, h: 42 }, { id: 'crane-2', x: 400, z: 184, h: 38 },
+      { id: 'container-a', x: 368, z: 92 }, { id: 'container-b', x: 368, z: 108 },
+      { id: 'container-c', x: 368, z: 124 }, { id: 'container-d', x: 414, z: 92 },
+    ],
+    foundry: [
+      { id: 'furnace-1', x: -368, z: -368, h: 26 }, { id: 'furnace-2', x: -322, z: -368, h: 22 },
+      { id: 'chimney', x: -414, z: -368, h: 48 }, { id: 'silo', x: -368, z: -322, h: 30 },
+    ],
+    interiors: [
+      { id: 'gunshop-back', x: -138, z: 138, doorX: -138, doorZ: 122 },
+      { id: 'casino-floor', x: 230, z: -138, doorX: 230, doorZ: -122 },
+      { id: 'hospital-ward', x: -322, z: 138, doorX: -322, doorZ: 122 },
+      { id: 'tea-house', x: -46, z: -230, doorX: -46, doorZ: -214 },
+      { id: 'ferry-office', x: 414, z: 230, doorX: 414, doorZ: 214 },
+      { id: 'warehouse-9', x: -368, z: -368, doorX: -368, doorZ: -352 },
+    ],
+    boatDocks: [
+      { id: 'pier-south', x: 470, z: 414 }, { id: 'ferry', x: 480, z: 230 }, { id: 'harbor-north', x: 470, z: -322 },
+    ],
+  };
   return {
     seed, buildings, lamps, trees, parks, plazas, landmarks, billboards,
-    packages, carSpawns, taxiStands, garages, heliPads, eventSpots,
+    packages, carSpawns, taxiStands, garages, heliPads, eventSpots, r7,
     water: { x: HALF + 55, z: 0, w: 130, d: WORLD_SIZE + 260 },
     bounds: HALF,
   };
@@ -221,4 +251,44 @@ export function randomStreetPoint(rng, margin) {
   const along = rngRange(rng, -m, m);
   if (rng() < 0.5) return { x: streetCoord(i), z: streetCoord(j) + along };
   return { x: streetCoord(i) + along, z: streetCoord(j) };
+}
+
+// r7: the new districts, interiors and water are data on the city — the
+// renderer draws them, the gameplay modules read them, tests count them.
+export function r7Extras(city) {
+  return city.r7 || { marketStalls: [], docks: [], foundry: [], interiors: [], boatDocks: [] };
+}
+
+export function inWater(x, z) {
+  return x > 460;
+}
+
+export function nearestInteriorDoor(city, x, z, maxDist) {
+  let best = null;
+  let bestD = maxDist || 6;
+  for (const it of (city.r7?.interiors || [])) {
+    const d = Math.hypot(x - it.doorX, z - it.doorZ);
+    if (d < bestD) { bestD = d; best = it; }
+  }
+  return best;
+}
+
+export function nearestBoatDock(city, x, z) {
+  let best = null;
+  let bestD = Infinity;
+  for (const d of (city.r7?.boatDocks || [])) {
+    const dd = Math.hypot(x - d.x, z - d.z);
+    if (dd < bestD) { bestD = dd; best = d; }
+  }
+  return best ? { dock: best, dist: bestD } : null;
+}
+
+export function marketStallAt(city, x, z, maxDist) {
+  let best = null;
+  let bestD = maxDist || 5;
+  for (const s of (city.r7?.marketStalls || [])) {
+    const d = Math.hypot(x - s.x, z - s.z);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
 }

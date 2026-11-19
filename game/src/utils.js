@@ -165,3 +165,60 @@ export function angleTo(ax, az, bx, bz) {
 export function deepEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
+
+// r7 helpers: easing for cutscenes and camera moves, ordinals for the
+// race leaderboard, a 3D hash for per-boat wake noise, and the clock
+// labels the story UI uses ("Night 2 — 03:12").
+export function easeInOut(t) {
+  const x = clamp(t, 0, 1);
+  return x < 0.5 ? 2 * x * x : 1 - ((-2 * x + 2) ** 2) / 2;
+}
+
+export function easeOut(t) {
+  return 1 - (1 - clamp(t, 0, 1)) ** 3;
+}
+
+export function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+export function hash3(x, y, z, seed) {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 2246822519) + Math.imul(z | 0, 668265263) + Math.imul(seed | 0, 974634211)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+export function formatScore(n) {
+  return Math.round(n).toLocaleString('en-US');
+}
+
+export function starRating(stars, max) {
+  const m = max || 7;
+  let out = '';
+  for (let i = 0; i < m; i += 1) out += i < stars ? '★' : '☆';
+  return out;
+}
+
+export function lerpAngle(a, b, t) {
+  return a + wrapAngle(b - a) * clamp(t, 0, 1);
+}
+
+export function damp(current, target, lambda, dt) {
+  return lerp(target, current, Math.exp(-lambda * dt));
+}
+
+export function distanceToSegment(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const len2 = dx * dx + dz * dz;
+  let t = len2 === 0 ? 0 : ((px - ax) * dx + (pz - az) * dz) / len2;
+  t = clamp(t, 0, 1);
+  return dist(px, pz, ax + dx * t, az + dz * t);
+}
+
+export function plural(n, one, many) {
+  return n === 1 ? one : many;
+}

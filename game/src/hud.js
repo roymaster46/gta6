@@ -87,6 +87,13 @@ export function createHud(canvas) {
     for (const unit of state.swat || []) dot(unit.x, unit.z, '#ff2244', 4);
     for (const unit of state.fibCars || []) dot(unit.car.x, unit.car.z, '#991122', 4);
     for (const block of state.roadblocks || []) dot(block.x, block.z, '#ff7a1a', 4);
+    // r7: boats read teal on the water, crowds read soft white, the
+    // marshal reads purple, r7 missions read gold, interiors read green.
+    for (const boat of state.boats || []) dot(boat.x, boat.z, '#2e7a8a', 5);
+    for (const g of state.crowdGroups || []) dot(g.x, g.z, '#e8e4da', 3);
+    if (state.marshal) dot(state.marshal.x, state.marshal.z, '#a855f7', 5);
+    if (state.sideJob) dot(state.sideJob.toX, state.sideJob.toZ, '#a3e635', 4);
+    for (const it of state.interiors || []) dot(it.doorX, it.doorZ, '#7dff8a', 3);
     if (state.playerHeli) dot(state.playerHeli.x, state.playerHeli.z, '#ff5566', 5);
     if (state.vigilante) dot(state.vigilante.x, state.vigilante.z, '#ff2244', 5);
     if (state.event) dot(state.event.actorX, state.event.actorZ, '#ff7a1a', 4);
@@ -127,8 +134,10 @@ export function createHud(canvas) {
       const lines = [
         'WASD move  ·  Shift sprint  ·  Space jump  ·  Mouse drag to look',
         'E steal / enter car  ·  F shoot / punch  ·  N nitro  ·  C camera  ·  P pause',
-        '1-5 weapons  ·  G garage  ·  R reload  ·  B gun shop  ·  V vigilante  ·  Ctrl sneak',
-        '14 missions, heli flights, taxi fares, hidden packages, street events',
+        '1-7 weapons  ·  G garage  ·  R reload  ·  B gun shop  ·  V vigilante  ·  Ctrl sneak',
+        'Q side job  ·  T enter doorway  ·  Boats at the pier  ·  Night market after dark',
+        '22 missions in 3 acts, heli flights, taxi + ambulance shifts, street-race series, bounties',
+        'Crowds panic, rain makes roads slick, night patrols are stricter — seven stars is a legend',
       ];
       lines.forEach((l, i) => text(l, W / 2, H * 0.42 + i * 30, 17, '#fff', 'center'));
       text('Press Enter or click to start', W / 2, H * 0.62, 22, '#ffc233', 'center', true);
@@ -160,6 +169,15 @@ export function createHud(canvas) {
     const stars = state.wanted.stars;
     text(starsText(stars), 20, 92, 24, '#ffb347');
     if (stars > 0) text(`${state.wanted.band} · ${state.wanted.notoriety}% notoriety`, 20, 120, 13, '#ffb347');
+    // r7: the wanted level is alive — an arrow shows it rising or
+    // falling, and the legend badge shows the permanent seven-star tier.
+    if (state.wanted.direction) {
+      const arrow = state.wanted.direction === 'rising' ? '▲ heat rising' : state.wanted.direction === 'falling' ? '▼ cooling off' : '— holding';
+      text(arrow, 150, 94, 13, state.wanted.direction === 'rising' ? '#ff5544' : '#7dff8a');
+    }
+    if (state.legend) {
+      text(`${state.legend.stars}★ ${state.legend.name} — legend ${state.legend.stars}/7`, 20, 138, 13, '#c9a227');
+    }
     // r6: at 5 stars the banner says exactly what is coming — SWAT and
     // FIB, not just more stars — and it pulses so it cannot be missed.
     if (state.wanted.fiveStar) {
@@ -178,6 +196,10 @@ export function createHud(canvas) {
     // Mission panel, top-left under the vitals. At 5 stars it drops
     // below the SWAT banner instead of hiding under it.
     const panelY = state.wanted.fiveStar ? 172 : 128;
+    // r7: the story banner — act + chapter above the mission card.
+    if (state.storyChapter) {
+      text(`${state.storyChapter}`, 20, panelY - 18, 13, '#22d3ee', 'left', true);
+    }
     if (state.mission) {
       const m = state.mission;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -233,6 +255,15 @@ export function createHud(canvas) {
     if (state.vigilanteDone || state.eventsDone) {
       text(`Vigilante ${state.vigilanteDone || 0}  ·  Events ${state.eventsDone || 0}`, W - 20, H - 16, 12, '#c8cdd6', 'right');
     }
+    // r7: side-job + weather gameplay lines — the rain warning and the
+    // active side job live here so the player can act on them.
+    if (state.weatherHint) text(state.weatherHint, W - 20, H - 82, 12, '#9fc3e8', 'right');
+    if (state.sideJob) text(`${state.sideJob.name} — ${state.sideJob.pickedUp ? 'deliver to the green marker' : 'pick up at the green marker'}`, W - 20, H - 100, 12, '#a3e635', 'right');
+    if (state.slowMo) {
+      ctx.fillStyle = 'rgba(34,211,238,0.25)';
+      ctx.fillRect(0, 0, W, H);
+      text('SLOW-MO — HEADSHOT', W / 2, H * 0.3, 28, '#22d3ee', 'center', true);
+    }
 
     drawMinimap(state);
 
@@ -248,6 +279,15 @@ export function createHud(canvas) {
       ctx.fillRect(0, 0, W, H);
       text('PAUSED', W / 2, H * 0.4, 54, '#fff', 'center', true);
       text('P to resume  ·  Enter to restart the run', W / 2, H * 0.4 + 70, 18, '#c8cdd6', 'center');
+      // r7: the pause menu is a real menu — run stats, story progress
+      // and the controls, so a pause is a breather, not a blank screen.
+      const lines = [
+        `Score ${state.score.toLocaleString()}  ·  Cash ${formatMoney(state.player.cash)}  ·  Missions ${state.missionsDone}/${state.missionsTotal || 22}`,
+        state.storyChapter ? `Story: ${state.storyChapter}` : '',
+        state.legend ? `Legend: ${state.legend.stars}★ ${state.legend.name}` : '',
+        'Q side job  ·  T enter doorway  ·  B gun shop  ·  V vigilante  ·  M mute',
+      ].filter(Boolean);
+      lines.forEach((l, i) => text(l, W / 2, H * 0.4 + 110 + i * 26, 15, '#e8e4da', 'center'));
     }
   }
 

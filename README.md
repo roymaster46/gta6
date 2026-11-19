@@ -5,9 +5,11 @@
 [![reward](https://make.fun/badge/gta6-01/roymaster46/gta6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 **Ember Harbor** is an original 3D open-world crime game set in Rust Harbor, a
-gritty harbour city of nine districts. You are **Vex Marlowe**, a courier who
-came back to the harbour with $60 and a borrowed jacket. Run jobs, steal cars,
-dodge the Harbor PD — and pull the heist of the decade.
+gritty harbour city of nine districts — now twelve, with the Night Market,
+the Docks, Foundry Row Industrial, the Marina and Lantern Row. You are
+**Vex Marlowe**, a courier who came back to the harbour with $60 and a
+borrowed jacket. Run jobs, steal cars, sail boats, dodge the Harbor PD —
+and pull the heist of the decade.
 
 Everything is original: the city, characters, vehicles, story and sounds. No
 Rockstar / GTA names, characters, map, art or music are used. All art is
@@ -95,7 +97,7 @@ shop and Vex's safehouse in Hillcrest.
   Rifle (1–5 to switch), with ammo, range, fire rate and pellet spread per
   weapon, R to reload, and kevlar armour that absorbs damage first. Gang
   members and SWAT shoot back. Click or F to fire.
-- **Missions (14-story chain)** — 1) First Drop (courier run, 3 drops),
+- **Missions (22-story chain in 3 acts)** — 1) First Drop (courier run, 3 drops),
   2) Hot Wheels (steal the Falcon GT, deliver it to the chop shop),
   3) Street Circuit (3 laps, 8 gates a lap against the clock),
   4) Payback (clear the Dockside crew, 4 gang members),
@@ -109,11 +111,45 @@ shop and Vex's safehouse in Hillcrest.
   12) Turf War (hold the Pier against waves for 120 s),
   13) Tail Job (tail the courier 45 s without being spotted),
   14) Harbor Heist (the finale: vault gold, 5-star escape by helicopter —
-  $2,000). Each has a timer, a pulsing beacon in the world and on the
+  $2,000), 15) Ferry Gambit (board the ferry by boat, take the manifest),
+  16) The Last Ferry (escort Mara's people, hold the dock),
+  17) Harbor King (take Warehouse 9, the casino floor and the docks —
+  $2,500), 18) Market Courier (5 timed drops through the night market),
+  19) Ambulance Hero (3 patients to St. Anselm),
+  20) Street Champion (5-lap championship),
+  21) Bounty Hunter (4 names on the board),
+  22) Fishing Charter (tourists at dawn). Each has a timer, a pulsing beacon in the world and on the
   minimap, and a cash reward. Start the next job at the South Pier.
+  The three-act story wraps them: Act I Coming Home, Act II The Night
+  Market, Act III Seven Stars — with cutscene dialogue from Mara, Rusty,
+  Iron Annie, Juno, Sal Kett, Ibrahim Hale and Doc Anselm, and a chapter
+  bonus every time an act chapter closes.
 - **Side jobs** — taxi fares for cash (pick up at the cyan marker, drop off
   for $45 plus tips), vigilante jobs (press V) and **16 hidden packages**
   tucked across the city, $120 each.
+- **r7 systems** — **Story campaign**: 8 chapters in 3 acts with cutscene
+  dialogue and chapter bonuses. **Crowds**: groups that walk together,
+  queue at stalls, cross streets and panic as one when gunfire starts.
+  **Weather that matters**: rain makes roads slick (longer braking, more
+  drift), fog cuts police sight range, night patrols are stricter (heat
+  builds faster, roadblocks at 3 stars), storms ground the helicopter.
+  **Boats**: steal a Harbor Runner at the pier and sail the water strip —
+  the Ferry Gambit and Fishing Charter missions run on it. **New
+  vehicles**: Comet R sports bike, Harborview limo, ambulance, bus and
+  Iron V8 muscle car, each with its own handling. **Interiors**: walk
+  into the gun-shop back room, the casino floor, the hospital ward,
+  Juno's tea house, the ferry office and Warehouse 9 (T at a glowing
+  doorway) — each with loot or a contact. **Night market**: six stalls
+  that sell healing food, stamina tea and harbour intel after dark.
+  **Side jobs (Q)**: taxi shifts with ratings, ambulance runs, a
+  street-race series with a leaderboard, courier deliveries, a bounty
+  board (alive pays double) and fishing charters. **Effects**: particles
+  (smoke, sparks, splashes), screen shake, skid marks, and slow motion
+  on long-range headshots. **New weapons**: Iron Revolver (6) and the
+  silenced Whisper (7, builds no heat). **Seven-star legend**: rep
+  tiers 1–7 above the 5-star wanted level — at 6 stars the Harbor
+  Marshal (260 HP, never gives up) hunts you. **Skills**: driving,
+  shooting, swimming and flying grow with use.
 - **HUD & minimap** — cash, health, armour, stamina, wanted stars, weapon
   + ammo, mission card with timer and live step progress, car card (health,
   nitro, speed) or heli card (altitude, fuel, health), score, mission/
@@ -144,6 +180,9 @@ shop and Vex's safehouse in Hillcrest.
 | 1 / 2 / 3 / 4 / 5 | Fists / Pistol / SMG / Shotgun / Rifle |
 | B | Gun shop (at Iron Annie Guns): open, then buy selected item |
 | V | Vigilante job: take the next wanted criminal |
+| Q | Side job: taxi / ambulance / courier / bounty / fishing (rotates) |
+| T | Enter doorway / buy at a market stall (or leave an interior) |
+| 6 / 7 | Iron Revolver / Whisper Silenced |
 | X | Descend in the helicopter |
 | R | Reload current weapon |
 | Ctrl | Crouch / sneak (stealth jobs) |
@@ -196,6 +235,14 @@ The four submission screenshots are `screenshots/`: 1-day, 2-night,
 - `game/src/events.js` — ambient city events + ped archetype catalogue
 - `game/src/missions.js` — 14 story missions + taxi fares + hidden packages
 - `game/src/missions-extra.js` — the 6 r6 story jobs (Skyhook, Midnight Run, Ghost, Turf War, Tail Job, Harbor Heist)
+- `game/src/missions-r7.js` — the 8 r7 story jobs (Ferry Gambit, Last Ferry, Harbor King, Market Courier, Ambulance Hero, Street Champion, Bounty Hunter, Fishing Charter)
+- `game/src/story.js` — three-act story campaign: 8 chapters, cutscene dialogue, chapter bonuses
+- `game/src/crowd.js` — crowd AI: groups, panic, street crossings, stall queues
+- `game/src/weather.js` — weather + day/night gameplay rules (slick roads, fog sight, night patrols, storm grounding)
+- `game/src/boats.js` — boats, sports bike, limo, ambulance, bus, muscle car + handling table
+- `game/src/interiors.js` — six enterable interiors + night-market stalls + dock/foundry props
+- `game/src/sidejobs.js` — taxi, ambulance, street-race series, courier, bounty board, fishing
+- `game/src/fx.js` — particles, screen shake, slow-mo, muzzle flashes, skid marks, explosions
 - `game/src/combat.js` — weapons, ammo, reload, armour, rifle anti-heli fire, hit math
 - `game/src/render.js` — Three.js scene, day/night, weather, camera, heli/SWAT/roadblock/event meshes
 - `game/src/hud.js` — HUD + circular minimap
@@ -206,7 +253,7 @@ The four submission screenshots are `screenshots/`: 1-day, 2-night,
 - `game/src/utils.js` — math, seeded RNG, formatting
 - `main.ts` — entrypoint: copies game/ + screenshots/ to /output, writes dossier.json
 - `serve.ts` — tiny static server for local play
-- `tests/test.mjs` — logic test suite (262 checks, Node only)
+- `tests/test.mjs` — logic test suite (262 checks r6, 340+ checks r7, Node only)
 - `screenshots/` — 4 real renders of the game
 
 ---

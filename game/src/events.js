@@ -189,3 +189,38 @@ export function randomArchetype(rng) {
 export function archetypeSpeed(archetypeId) {
   return pedArchetype(archetypeId).speed;
 }
+
+// r7: the city after dark — parade, harbour fire, market concert,
+// dock protest and a boat race on the water. These are the big events:
+// they draw crowds, close streets, and pay more than a street brawl.
+export const R7_EVENT_KINDS = [
+  { kind: 'parade', label: 'Harbour parade', reward: 200, duration: 120 },
+  { kind: 'harbour-fire', label: 'Warehouse fire', reward: 300, duration: 90 },
+  { kind: 'concert', label: 'Night-market concert', reward: 180, duration: 150 },
+  { kind: 'protest', label: 'Dock protest', reward: 150, duration: 100 },
+  { kind: 'boat-race', label: 'Harbour boat race', reward: 350, duration: 120 },
+];
+
+export function r7EventDef(kind) {
+  return R7_EVENT_KINDS.find((e) => e.kind === kind) || null;
+}
+
+export function spawnR7Event(state, rng, player, kind) {
+  const def = r7EventDef(kind || R7_EVENT_KINDS[Math.floor(rng() * R7_EVENT_KINDS.length)].kind);
+  if (!def) return null;
+  if (state.active.length >= 3) return null;
+  const spot = pickEventSpot(rng, player);
+  const ev = {
+    id: state.nextId, kind: def.kind, label: def.label, reward: def.reward,
+    x: spot.x, z: spot.z, timer: def.duration, progress: 0, done: false,
+    actorX: spot.x + 6, actorZ: spot.z, actorHeading: 0, actorSpeed: 12,
+    chaserX: spot.x - 10, chaserZ: spot.z - 6, targetHealth: 0, r7: true,
+  };
+  state.nextId += 1;
+  state.active.push(ev);
+  return ev;
+}
+
+export function r7EventsSummary(state) {
+  return state.active.filter((e) => e.r7).map((e) => ({ kind: e.kind, label: e.label }));
+}

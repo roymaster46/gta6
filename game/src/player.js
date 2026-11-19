@@ -25,6 +25,12 @@ export function createPlayer(x, z) {
     maxStamina: 100,
     crouching: false,
     exhausted: false,
+    // r7: skills grow with use — driving, shooting, swimming — and the
+    // legend is the permanent reputation the city grades you on.
+    skills: { driving: 0, shooting: 0, swimming: 0, flying: 0 },
+    legend: 1,
+    inWater: false,
+    swimSpeed: 2.2,
   };
 }
 
@@ -145,6 +151,42 @@ export function playerSpeed(p) {
 
 export function playerStaminaPct(p) {
   return Math.round((p.stamina / p.maxStamina) * 100);
+}
+
+// r7: skills, legend and water. Driving skill grows per minute behind
+// the wheel, shooting per hit, swimming while in the harbour water.
+export function addSkill(p, skill, amount) {
+  if (!p.skills) p.skills = { driving: 0, shooting: 0, swimming: 0, flying: 0 };
+  p.skills[skill] = clamp((p.skills[skill] || 0) + amount, 0, 100);
+  return p.skills[skill];
+}
+
+export function skillLevel(p, skill) {
+  if (!p.skills) return 0;
+  return Math.floor((p.skills[skill] || 0) / 20) + 1;
+}
+
+export function addRep(p, amount) {
+  p.rep = Math.max(0, (p.rep || 0) + amount);
+  return p.rep;
+}
+
+export function playerInWater(p) {
+  return !!p.inWater;
+}
+
+export function updateSwimming(p, dt) {
+  // In the harbour water the player swims slowly and cannot sprint.
+  p.inWater = p.x > 460;
+  if (p.inWater) {
+    p.sprinting = false;
+    addSkill(p, 'swimming', dt * 0.5);
+  }
+  return p.inWater;
+}
+
+export function swimSpeed(p) {
+  return (p.swimSpeed || 2.2) * (1 + ((p.skills?.swimming || 0) / 100) * 0.5);
 }
 
 export function isSneaking(p) {

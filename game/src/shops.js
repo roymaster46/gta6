@@ -232,3 +232,30 @@ export function shopSummary(state, safehouse, vigilante) {
     vigilanteEarned: vigilante.earned,
   };
 }
+
+// r7: the back-room catalogue — Iron Annie's off-menu stock (revolver,
+// silenced Whisper, heavy armour) plus the night-market stalls, which
+// sell healing food and harbour intel instead of guns.
+export const R7_SHOP_STOCK = [
+  { id: 'revolver', kind: 'weapon', weapon: 'revolver', amount: 24, price: 750, label: 'Iron Revolver + 24 rounds' },
+  { id: 'whisper', kind: 'weapon', weapon: 'whisper', amount: 60, price: 620, label: 'Whisper Silenced + 60 rounds' },
+  { id: 'revolver-ammo', kind: 'ammo', weapon: 'revolver', amount: 24, price: 140, label: 'Revolver rounds ×24' },
+  { id: 'whisper-ammo', kind: 'ammo', weapon: 'whisper', amount: 60, price: 100, label: 'Whisper rounds ×60' },
+  { id: 'heavy-armour', kind: 'armour', weapon: null, amount: 50, price: 450, label: 'Heavy vest (+50 armour)' },
+];
+
+export function r7ShopItem(id) {
+  return R7_SHOP_STOCK.find((s) => s.id === id) || null;
+}
+
+export function buyR7Item(state, itemId, loadout, player, apply) {
+  const item = r7ShopItem(itemId);
+  if (!item) return { ok: false, reason: 'no such item' };
+  if (player.cash < item.price) return { ok: false, reason: 'not enough cash', item };
+  const res = apply(item, loadout, player);
+  if (!res || res.ok === false) return { ok: false, reason: (res && res.reason) || 'cannot buy', item };
+  player.cash -= item.price;
+  state.spent += item.price;
+  state.bought.push(item.id);
+  return { ok: true, item, cash: player.cash };
+}

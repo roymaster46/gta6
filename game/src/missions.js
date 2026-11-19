@@ -327,6 +327,27 @@ export function updateMission(state, ctx) {
     } else {
       state.tailTimer = Math.max(0, state.tailTimer - ctx.dt);
     }
+  } else if (step.kind === 'escort') {
+    // r7: escort — the caller reports each person delivered via
+    // ctx.escorted; reaching the point with the count met advances.
+    if (ctx.escorted) state.delivered += ctx.escorted;
+    if (state.delivered >= (step.count || 1) || dist(ctx.x, ctx.z, step.x, step.z) < 9) {
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+    }
+  } else if (step.kind === 'boat-deliver') {
+    // r7: reach the dock — in the boat when sailing (ctx.inBoat), on
+    // foot when the step is a boarding step.
+    if (dist(ctx.x, ctx.z, step.x, step.z) < 12) {
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+    }
+  } else if (step.kind === 'checkpoint') {
+    // r7: a race checkpoint — pass through the point at speed.
+    if (dist(ctx.x, ctx.z, step.x, step.z) < 10) {
+      const r = advanceStep(state);
+      return r.done ? { type: 'complete', ...r } : { type: 'step', label: step.label };
+    }
   }
   return null;
 }
@@ -354,6 +375,17 @@ export function nextAvailableMission(state) {
 
 export function totalEarned(state) {
   return state.completed.reduce((sum, id) => sum + (missionDef(id)?.reward || 0), 0);
+}
+
+// r7: the full game is 22 missions — the 14 here plus the 8 r7 jobs in
+// missions-r7.js. This helper is the number the HUD and the title show.
+export function totalMissionCount() {
+  return MISSION_DEFS.length + 8;
+}
+
+export function allMissionsDone(state, r7State) {
+  return state.completed.length >= MISSION_DEFS.length
+    && r7State && r7State.completed.length >= 8;
 }
 
 // --- Side economy ---------------------------------------------------------
