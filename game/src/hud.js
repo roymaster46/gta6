@@ -176,7 +176,10 @@ export function createHud(canvas) {
       text(arrow, 150, 94, 13, state.wanted.direction === 'rising' ? '#ff5544' : '#7dff8a');
     }
     if (state.legend) {
-      text(`${state.legend.stars}★ ${state.legend.name} — legend ${state.legend.stars}/7`, 20, 138, 13, '#c9a227');
+      // Below the mission panel at 5 stars (the banner owns 140–166),
+      // otherwise right under the notoriety band.
+      const legendY = state.wanted.fiveStar ? 262 : 138;
+      text(`${state.legend.stars}★ ${state.legend.name} — legend ${state.legend.stars}/7`, 20, legendY, 13, '#c9a227');
     }
     // r6: at 5 stars the banner says exactly what is coming — SWAT and
     // FIB, not just more stars — and it pulses so it cannot be missed.
@@ -197,7 +200,8 @@ export function createHud(canvas) {
     // below the SWAT banner instead of hiding under it.
     const panelY = state.wanted.fiveStar ? 172 : 128;
     // r7: the story banner — act + chapter above the mission card.
-    if (state.storyChapter) {
+    // Hidden at 5 stars: the SWAT banner owns that strip.
+    if (state.storyChapter && !state.wanted.fiveStar) {
       text(`${state.storyChapter}`, 20, panelY - 18, 13, '#22d3ee', 'left', true);
     }
     if (state.mission) {
