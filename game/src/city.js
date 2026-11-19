@@ -34,6 +34,13 @@ export const LANDMARKS = {
   // whatever the cops towed after a bust; $200 buys your car back.
   chopshop: { x: 2080, y: 1800, label: 'Chop Shop' },
   impound: { x: 2080, y: 1420, label: 'Impound Lot' },
+  // Shops & the second safehouse (shops.js): Marina Arms gun store in Old
+  // Town, Sol Diner in Market Square, Coral Clothing in Rose Gardens, and
+  // the Marina Penthouse — $4,000 of glass, ocean view and garage space.
+  gunstore: { x: 375, y: 600, label: 'Marina Arms' },
+  diner: { x: 375, y: 1050, label: 'Sol Diner' },
+  clothes: { x: 900, y: 1575, label: 'Coral Clothing' },
+  penthouse: { x: 1800, y: 240, label: 'Marina Penthouse' },
 };
 
 const BUILDING_COLORS = [

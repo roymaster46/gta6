@@ -10,13 +10,16 @@
 import { dist, rand, fmtCountdown, angleTo, turnToward, clamp } from './utils.js';
 import { randomRoadPoint, collideBuildings } from './city.js';
 import { makeCar, carHealth, CAR_MODELS } from './vehicles.js';
+import { addRespect, controlHere, CONTROL_GAIN } from './respect.js';
 
 // Courier tiers: same job, different stakes. Fragile pays more for a
-// tighter window; VIP pays most of all and the clock is brutal.
+// tighter window; VIP pays most of all and the clock is brutal; the
+// Midnight parcel only runs after dark and pays triple — if you dare.
 const COURIER_TIERS = [
   { name: 'parcel', payMult: 1.0, speed: 200, slack: 20 },
   { name: 'fragile parcel', payMult: 1.5, speed: 260, slack: 15 },
   { name: 'VIP parcel', payMult: 2.2, speed: 240, slack: 12 },
+  { name: 'Midnight parcel', payMult: 3.0, speed: 280, slack: 10, nightOnly: true },
 ];
 
 export function createSideJobState() {
@@ -48,8 +51,13 @@ export function cancelSideJobs(game) {
   sj.vigilanteCooldown = 20;
 }
 
-function pickTier() {
+function pickTier(game) {
+  // The Midnight parcel only rolls after dark — and only for drivers the
+  // street already knows (respect tier 1+).
+  const night = game && game.clock !== undefined && game.nightMode;
+  const known = game && game.respect && game.respect.tier >= 1;
   const r = Math.random();
+  if (night && known && r < 0.15) return COURIER_TIERS[3];
   if (r < 0.6) return COURIER_TIERS[0];
   if (r < 0.85) return COURIER_TIERS[1];
   return COURIER_TIERS[2];
@@ -61,7 +69,7 @@ export function offerCourier(game) {
   const pickup = randomRoadPoint(game.city, Math.random);
   const dropoff = randomRoadPoint(game.city, Math.random);
   const d = dist(pickup.x, pickup.y, dropoff.x, dropoff.y);
-  const tier = pickTier();
+  const tier = pickTier(game);
   const pay = Math.round((60 + d / 25) * tier.payMult);
   sj.courier = {
     pickup, dropoff, pay, tier: tier.name,
@@ -190,6 +198,10 @@ export function updateSideJobs(game, dt) {
         p.money += c.pay + bonus;
         p.stats.couriersDone++;
         p.stats.rep = (p.stats.rep || 0) + 15;
+        if (game.respect) {
+          addRespect(game, 15, 'Courier done');
+          controlHere(game, CONTROL_GAIN.fare, 'Courier');
+        }
         game.events.push({ type: 'cash' });
         game.missions.message = `Courier done — +$${c.pay + bonus}${bonus ? ` (incl. $${bonus} speed bonus)` : ''}`;
         game.missions.messageTimer = 4;
@@ -219,6 +231,10 @@ export function updateSideJobs(game, dt) {
         p.money += pay;
         p.stats.rampagesDone++;
         p.stats.rep = (p.stats.rep || 0) + 25;
+        if (game.respect) {
+          addRespect(game, 25, 'Rampage cleared');
+          controlHere(game, CONTROL_GAIN.vigilante, 'Rampage');
+        }
         game.events.push({ type: 'cash' });
         game.missions.message = `Rampage cleared — +$${pay}! The streets are quieter tonight.`;
         game.missions.messageTimer = 4;
@@ -252,6 +268,10 @@ export function updateSideJobs(game, dt) {
       p.money += v.pay;
       p.stats.vigilanteDone = (p.stats.vigilanteDone || 0) + 1;
       p.stats.rep = (p.stats.rep || 0) + 30;
+      if (game.respect) {
+        addRespect(game, 30, 'Vigilante takedown');
+        controlHere(game, CONTROL_GAIN.vigilante, 'Vigilante');
+      }
       game.events.push({ type: 'cash' });
       game.events.push({ type: 'explosion', x: v.car.x, y: v.car.y });
       game.missions.message = `Vigilante: Viper getaway wrecked — +$${v.pay}! The PD sends its thanks.`;

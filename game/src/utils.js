@@ -137,6 +137,18 @@ export function fmtTime(sec) {
 export function fmtCountdown(sec) {
   return Math.max(0, Math.ceil(sec)) + 's';
 }
+// "mm:ss" for race timers and survival clocks (same shape as fmtTime, but
+// named for what it measures so call sites read clearly).
+export function fmtDuration(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+// Wrap an angle to (-PI, PI].
+export function clampAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a <= -Math.PI) a += Math.PI * 2;
+  return a;
+}
 export function shade(hex, amt) {
   // Lighten (amt>0) or darken (amt<0) a #rrggbb colour by amt (-100..100).
   const n = parseInt(hex.slice(1), 16);

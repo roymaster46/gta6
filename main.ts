@@ -24,9 +24,9 @@ if (!existsSync(gameDir)) {
 if (!existsSync(shotsDir)) {
   throw new Error('main.ts: screenshots/ is missing from the repository');
 }
-for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js', 'chopshop.js', 'races.js']) {
+for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js', 'chopshop.js', 'races.js', 'save.js', 'respect.js', 'weaponwheel.js', 'shops.js', 'carjack.js', 'gangwar.js', 'collectibles.js', 'achievements.js']) {
   if (!existsSync(join(gameDir, 'src', mod))) {
-    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job, radio, chop-shop and street-race modules are required`);
+    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job, radio, chop-shop, street-race, save, respect, weapon-wheel, shop, carjack, turf-war, collectible and achievement modules are required`);
   }
 }
 // The city must tile into exactly sixteen districts: the dossier's text
@@ -57,6 +57,29 @@ if (circuitCount !== 3) {
   throw new Error(`main.ts: expected 3 race circuits in game/src/races.js, found ${circuitCount}`);
 }
 console.log(`street circuit: ${circuitCount} circuits (Marina Sprint, Downtown Loop, Coastal Grand Prix)`);
+// The story chain must ship sixteen missions: the second act (13-16) closes
+// the Viper war, and the dossier's mission list is built from MISSION_DEFS.
+const missionCount = (missionsSrc.match(/id: \d+, title: '/g) || []).length;
+if (missionCount !== 16) {
+  throw new Error(`main.ts: expected 16 missions in game/src/missions.js, found ${missionCount}`);
+}
+console.log(`story chain: ${missionCount} missions (First Fare to Sunset King)`);
+// The weapon wheel must ship six slots: a shorter wheel would strand the
+// molotov and revolver the gun store sells.
+const wheelSrc = readFileSync(join(gameDir, 'src', 'weaponwheel.js'), 'utf8');
+const wheelSlots = (wheelSrc.match(/id: '(pistol|smg|shotgun|rifle|molotov|revolver)', price: /g) || []).length;
+if (wheelSlots !== 6) {
+  throw new Error(`main.ts: expected 6 weapon-wheel slots in game/src/weaponwheel.js, found ${wheelSlots}`);
+}
+console.log(`weapon wheel: ${wheelSlots} slots (pistol to revolver)`);
+// The save system must ship three slots: slot 1 is the migrated legacy
+// save, slots 2-3 are fresh.
+const saveSrc = readFileSync(join(gameDir, 'src', 'save.js'), 'utf8');
+const slotCount = (saveSrc.match(/SLOT_COUNT = 3/) || []).length;
+if (slotCount !== 1) {
+  throw new Error('main.ts: expected SLOT_COUNT = 3 in game/src/save.js');
+}
+console.log('save system: 3 slots (v2, autosave every 45s)');
 // Every screenshot named in shots.json must exist on disk: a stale entry
 // would otherwise ship a dossier pointing at a file that is not there.
 const shotList = JSON.parse(readFileSync(join(repoRoot, 'shots.json'), 'utf8'));

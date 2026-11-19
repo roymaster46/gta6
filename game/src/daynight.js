@@ -93,3 +93,25 @@ export function pedTarget(t) {
 export function trafficFactor(t) {
   return isNight(t) ? 0.85 : 1.0;
 }
+
+// Weather: the day cycle carries a slow weather band with it — one clear
+// stretch, one cloudy stretch, one rainy stretch per day, deterministic
+// from the clock so replays and screenshots match. Rain is cosmetic for
+// now (the renderer draws streaks) and trims grip a touch via rainFactor.
+export const WEATHER_BANDS = [
+  { from: 0, to: 200, name: 'Clear', rain: 0 },
+  { from: 200, to: 260, name: 'Cloudy', rain: 0 },
+  { from: 260, to: 320, name: 'Rain', rain: 1 },
+  { from: 320, to: 360, name: 'Clear', rain: 0 },
+];
+export function weatherAt(t) {
+  const w = wrap(t);
+  for (const b of WEATHER_BANDS) {
+    if (w >= b.from && w < b.to) return { name: b.name, rain: b.rain, t: w };
+  }
+  return { name: 'Clear', rain: 0, t: w };
+}
+export function rainFactor(t) {
+  // Grip multiplier while it rains: 0.92 — enough to feel, not to ruin a race.
+  return weatherAt(t).rain ? 0.92 : 1;
+}

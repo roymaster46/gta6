@@ -16,6 +16,7 @@ import { dist, clamp } from './utils.js';
 import { LANDMARKS } from './city.js';
 import { carHealth, makeCar } from './vehicles.js';
 import { addCrime } from './police.js';
+import { chopBonus, addRespect } from './respect.js';
 
 export const CHOP_COOLDOWN = 45;   // seconds between chop-shop sales
 export const IMPOUND_FEE = 200;    // dollars to buy a towed car back
@@ -51,6 +52,15 @@ export function chopShopValue(car) {
   return Math.round((base * condition) / 5) * 5;
 }
 
+// Same payout with Leo's respect applied: Hustler tier (2+) pays 10%
+// more — the crusher trusts a known face. The plain chopShopValue stays
+// for the tests and the "what is it worth" hint.
+export function chopShopValueFor(game, car) {
+  const base = chopShopValue(car);
+  if (base <= 0) return 0;
+  return Math.round((base * chopBonus(game)) / 5) * 5;
+}
+
 // Can Leo sell the car he is driving right now? Returns null when he can,
 // or the reason he cannot (shown as a toast).
 export function chopBlockReason(game) {
@@ -78,7 +88,7 @@ export function sellCarToChop(game) {
   if (blocked) return blocked;
   const p = game.player;
   const car = p.car;
-  const value = chopShopValue(car);
+  const value = chopShopValueFor(game, car);
   // The car goes to the crusher: out of the world, Leo on foot beside it.
   game.cars = game.cars.filter((c) => c !== car);
   p.inCar = false;
@@ -87,6 +97,7 @@ export function sellCarToChop(game) {
   p.stats.chopSales = (p.stats.chopSales || 0) + 1;
   p.stats.chopEarned = (p.stats.chopEarned || 0) + value;
   p.stats.rep = (p.stats.rep || 0) + 10;
+  if (game.respect) addRespect(game, 10, 'Chopped a hot car');
   if (game.chopshop) {
     game.chopshop.cooldown = CHOP_COOLDOWN;
     game.chopshop.sold++;

@@ -18,7 +18,7 @@ export function createInput(canvas) {
     Space: 'handbrake',
     KeyE: 'enter', KeyP: 'pause', KeyM: 'mute', KeyR: 'restart', KeyT: 'race',
     KeyF: 'interact', Escape: 'escape', Enter: 'confirm', KeyH: 'horn',
-    KeyG: 'garage', KeyN: 'nitro', KeyC: 'station',
+    KeyG: 'garage', KeyN: 'nitro', KeyC: 'station', KeyQ: 'wheel',
   };
 
   function onKeyDown(e) {

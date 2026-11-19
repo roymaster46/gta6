@@ -204,6 +204,19 @@ export function createAudio() {
       blip(65, 0.09, 'square', 0.22, 45);
       setTimeout(() => blip(65, 0.09, 'square', 0.18, 45), 110);
     },
+    // Car alarm: two-tone wail when a carjack trips the alarm.
+    alarm() {
+      blip(950, 0.18, 'square', 0.16, 1200);
+      setTimeout(() => blip(1200, 0.18, 'square', 0.16, 950), 180);
+      setTimeout(() => blip(950, 0.18, 'square', 0.16, 1200), 360);
+    },
+    // Save chime: a soft two-note confirm when the game writes a slot.
+    save() {
+      blip(784, 0.1, 'triangle', 0.25);
+      setTimeout(() => blip(1047, 0.16, 'triangle', 0.25), 100);
+    },
+    // Weapon wheel open/close: a short mechanical click.
+    wheel() { blip(500, 0.06, 'square', 0.18, 700); },
 
     // Continuous engine hum; call with speed 0..1, or null to stop.
     engine(speed) {

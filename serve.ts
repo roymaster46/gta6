@@ -4,7 +4,9 @@
 // does nothing clever: this is a development convenience, not a web server for the internet.
 // Port precedence: --port flag (also --port=8080), then the PORT environment
 // variable, then 8080. `--host 0.0.0.0` serves on all interfaces (default
-// 127.0.0.1). On startup it lists the ?shot= scenes from shots.json.
+// 127.0.0.1). On startup it lists the ?shot= scenes from shots.json —
+// including the new wheel and store scenes for the weapon wheel and the
+// Marina Arms gun store.
 import { createReadStream, statSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -32,7 +34,8 @@ function pickHost(): string {
 function listShots(): string[] {
   try {
     const shots = JSON.parse(readFileSync(resolve(root, '..', 'shots.json'), 'utf8'));
-    return Object.entries(shots).map(([name, url]) => `  ${name} -> ${url}`);
+    if (!Array.isArray(shots)) return ['  (shots.json is not a list)'];
+    return shots.map((s: { name: string; query: string }) => `  ${s.name} -> ${s.query}`);
   } catch {
     return ['  (shots.json not found)'];
   }

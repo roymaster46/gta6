@@ -154,6 +154,34 @@ export function createRaceState() {
   };
 }
 
+// Street-circuit championship: a season-long ladder across the three
+// circuits. A win is 10 points, a 2nd place is 4, every finish is 1 — so
+// grinding the Marina Sprint still moves the needle, but the Grand Prix
+// is where the season is won. The pause menu shows the ladder.
+export const SERIES_POINTS = { win: 10, second: 4, finish: 1 };
+export function seriesPoints(state) {
+  // Per-circuit points come from the per-circuit win table; the season
+  // total also counts the global win/finish counters (wins are 10, every
+  // other finish is 1), so a season total never depends on which circuit
+  // the wins happened on.
+  const perCircuit = {};
+  for (const c of RACE_CIRCUITS) {
+    perCircuit[c.id] = (state.wins[c.id] || 0) * SERIES_POINTS.win;
+  }
+  const wins = state.racesWon || 0;
+  const done = state.racesDone || 0;
+  const total = wins * SERIES_POINTS.win + Math.max(0, done - wins) * SERIES_POINTS.finish;
+  return { total, perCircuit, wins, done };
+}
+export function seriesRank(state) {
+  const { total } = seriesPoints(state);
+  if (total >= 100) return 'Street Legend';
+  if (total >= 50) return 'Circuit Pro';
+  if (total >= 20) return 'Regular';
+  if (total >= 1) return 'Rookie';
+  return 'Unranked';
+}
+
 // Nearest start pad to the player (within entry range), or null.
 export function nearestRaceStart(game) {
   const p = game.player;

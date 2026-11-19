@@ -56,6 +56,25 @@ export function spawnPeds(city, count, rng) {
   return peds;
 }
 
+// Shopkeepers: one ped each at the Marina Arms, Sol Diner and Coral
+// Clothing doors, standing in place (state 'watch') so the shops feel
+// staffed instead of empty. They flee like anyone else when shots ring
+// out — updatePeds treats 'watch' peds as civilians.
+export function spawnShopkeepers() {
+  const doors = [
+    { x: 375, y: 600, shirt: '#2a2a2e' },
+    { x: 375, y: 1050, shirt: '#e8e8e8' },
+    { x: 900, y: 1575, shirt: '#d86a2a' },
+  ];
+  return doors.map((d) => ({
+    x: d.x + 30, y: d.y + 10, angle: 0, speed: 0,
+    walkSpeed: 0, pace: 1, state: 'watch', target: null,
+    shirt: d.shirt, skin: '#e8b4b8', hair: '#2a2a2a',
+    fleeTimer: 0, panicTimer: 0, chatTimer: 0, chatPartner: null,
+    dead: false, bob: 0, keeper: true,
+  }));
+}
+
 // A ped panics: run away from (fx, fy).
 export function scarePeds(peds, fx, fy, radius = 320) {
   let count = 0;

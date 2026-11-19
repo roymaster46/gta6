@@ -71,6 +71,19 @@ export function copSpawnInterval(wanted, heliUp) {
 
 // Heat thresholds per star: reaching 100 heat adds a star.
 const STAR_HEAT = [0, 25, 45, 65, 85, 100];
+// SWAT: at 5 stars the PD stops sending regular patrol cars and sends
+// SWAT vans — faster, tougher, and they ram harder. The renderer draws
+// them black with a white stripe; the chase code treats them as cops.
+export const SWAT_STARS = 5;
+export function swatActive(wanted) {
+  return (wanted.stars || 0) >= SWAT_STARS;
+}
+// Heat decay per second, by star band and respect: a respected Leo
+// (Ghost outfit / high tier) cools off faster — the PD looks away.
+export function heatDecayRate(wanted, respectTier = 0) {
+  const base = (wanted.stars || 0) <= 2 ? 3.5 : 1.6;
+  return base * (1 + respectTier * 0.12);
+}
 export function addCrime(wanted, amount, time) {
   wanted.heat += amount;
   wanted.lastCrime = time;
@@ -90,13 +103,14 @@ export function clearWanted(wanted) {
   wanted.decayTimer = 0;
 }
 
-export function updateWanted(wanted, dt, time, committingCrime) {
+export function updateWanted(wanted, dt, time, committingCrime, respectTier = 0) {
   if (committingCrime) return;
-  // Decay only after 8 quiet seconds; faster at low stars.
+  // Decay only after 8 quiet seconds; faster at low stars, faster still
+  // when Leo is respected (heatDecayRate).
   if (time - wanted.lastCrime > 8) {
     wanted.decayTimer += dt;
     if (wanted.decayTimer > 2) {
-      wanted.heat = Math.max(0, wanted.heat - dt * (wanted.stars <= 2 ? 3.5 : 1.6));
+      wanted.heat = Math.max(0, wanted.heat - dt * heatDecayRate(wanted, respectTier));
       while (wanted.stars > 0 && wanted.heat < STAR_HEAT[wanted.stars]) wanted.stars--;
     }
   }

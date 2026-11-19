@@ -9,6 +9,7 @@ import { fireWeapon, WEAPONS } from './combat.js';
 import { addCrime } from './police.js';
 import { activateNitro, nitroActive, nitroReady, maxHealthOf } from './garage.js';
 import { impoundCar } from './chopshop.js';
+import { sprintMultiplier } from './shops.js';
 
 export function createPlayer() {
   return {
@@ -25,8 +26,8 @@ export function createPlayer() {
     inCar: false,
     car: null,
     weapon: 'pistol',
-    weapons: { pistol: true, smg: false, shotgun: false, rifle: false },
-    ammo: { pistol: Infinity, smg: 0, shotgun: 0, rifle: 0 },
+    weapons: { pistol: true, smg: false, shotgun: false, rifle: false, molotov: false, revolver: false },
+    ammo: { pistol: Infinity, smg: 0, shotgun: 0, rifle: 0, molotov: 0, revolver: 0 },
     fireTimer: 0,
     hurtTimer: 0,
     stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0, couriersDone: 0, rampagesDone: 0, rep: 0, chopSales: 0, chopEarned: 0, vigilanteDone: 0, racesWon: 0, racesDone: 0 },
@@ -63,7 +64,9 @@ export function updatePlayerOnFoot(game, dt, time) {
   const p = game.player;
   const input = game.input;
   const wantSprint = input.is('sprint') && p.stamina > 0;
-  const speed = wantSprint ? 250 : 150;
+  // The Street outfit (Coral Clothing) adds 5% sprint speed.
+  const sprintMult = game.shopState ? sprintMultiplier(game) : 1;
+  const speed = (wantSprint ? 250 : 150) * (wantSprint ? sprintMult : 1);
   let mx = (input.is('right') ? 1 : 0) - (input.is('left') ? 1 : 0);
   let my = (input.is('down') ? 1 : 0) - (input.is('up') ? 1 : 0);
   const moving = mx !== 0 || my !== 0;

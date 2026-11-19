@@ -99,3 +99,34 @@ export function stationTrack(station) {
 export function stationNowPlaying(station) {
   return `${stationLabel(station)} · ${stationTrack(station)}`;
 }
+
+// DJ chatter: each station's host drops a line between tracks. The HUD
+// radio chip rotates these while driving, so the dial feels alive.
+export const DJ_LINES = {
+  'Sol FM': [
+    'DJ Sol here — sun’s out, top down, Solmarina.',
+    'That was The Marinas — next up, Coast Road.',
+    'Traffic’s light on the marina, folks. Keep it that way.',
+  ],
+  'Noche FM': [
+    'Lena Marlowe on Noche FM — the city after dark.',
+    'Blue hour in Solmarina. Pour something slow.',
+    'Neon Rain, coming up — for everyone driving home late.',
+  ],
+  'Fuga FM': [
+    'Vexa here — redline it, Solmarina.',
+    'Sirens in the distance? That’s just the intro.',
+    'Fuga FM: for drivers who don’t do speed limits.',
+  ],
+  'Onda FM': [
+    'Cayo Sound on Onda FM — island time, all the time.',
+    'Low Tide next. Windows down, everybody.',
+    'Onda FM: bass on the two, worries on the floor.',
+  ],
+};
+// Pick a DJ line for a station (rng-injectable so tests are deterministic).
+export function djLine(stationName, rng = Math.random) {
+  const lines = DJ_LINES[stationName] || [];
+  if (!lines.length) return '';
+  return lines[Math.floor(rng() * lines.length)];
+}

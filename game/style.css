@@ -50,6 +50,9 @@ html, body {
 }
 /* The upgrade shop is drawn on the canvas (render.js drawShop), so it needs
    no DOM of its own — the hint bar and radio chip are the only overlays. */
+/* The weapon wheel and store overlays are canvas-drawn too; the hint bar
+   below is the player's quick reference for the new Q wheel and F shops. */
+#hint b { color: #ffd94a; font-weight: 700; }
 /* On narrow screens the one-line hint would overflow: let it wrap. */
 @media (max-width: 700px) {
   #hint {

@@ -4,6 +4,9 @@
 // engine (top speed), armour (car health), grip tires (steering) and a
 // nitro kit (N to boost). Levels stack; prices rise per level. A car with
 // no upgrades object yet gets a fresh one the first time the shop touches it.
+// Respect tier 3+ (Made Man) knocks 15% off every price — the shop knows
+// who Leo is by now.
+import { garageDiscount } from './respect.js';
 export const UPGRADES = [
   {
     id: 'engine',
@@ -32,6 +35,13 @@ export const UPGRADES = [
     desc: '+12% steering grip per level',
     levels: [250, 500],
     max: 2,
+  },
+  {
+    id: 'bulletproof',
+    name: 'Bulletproof Tires',
+    desc: 'Tires never blow out in chases',
+    levels: [350],
+    max: 1,
   },
 ];
 
@@ -100,8 +110,10 @@ export function buyUpgrade(game, def) {
   if (!p.inCar || !p.car) return 'Get in a car first — upgrades fit the car you drive.';
   const car = p.car;
   const level = upgradeLevel(car, def.id);
-  const cost = upgradeCost(def, level);
-  if (cost === null) return `${def.name} is already maxed out.`;
+  const baseCost = upgradeCost(def, level);
+  if (baseCost === null) return `${def.name} is already maxed out.`;
+  // Made Man discount: 15% off at respect tier 3+.
+  const cost = Math.round(baseCost * garageDiscount(game));
   if (p.money < cost) return `Not enough cash — ${def.name} costs $${cost}.`;
   p.money -= cost;
   const u = carUpgrades(car);

@@ -1,14 +1,20 @@
 // main.js — Solmarina boot, game loop, state machine and save.
 // States: title → playing ⇄ paused → busted/wasted → playing, plus 'shop'
-// (the garage upgrade overlay, which freezes the world while open).
+// (the garage upgrade overlay, which freezes the world while open),
+// 'wheel' (the weapon wheel, hold Q — the world freezes while picking)
+// and 'store' (gun store / diner / clothing shop overlay, also frozen).
 // The day/night clock runs here: game.clock advances 0..360 seconds and
 // game.light follows it; dusk flips the music into its night groove and the
 // helicopter rotor sound ticks while the PD heli is overhead. At 3+ stars
 // the radio is forced onto the Fuga FM chase groove until the heat drops.
 // F is the multi-use key: Pay-n-Spray at the garage, sell the car at the
-// chop shop, reclaim a towed car at the impound lot, otherwise start the
-// next mission. District discovery pays $25 per district (sixteen now).
-// URL query ?shot=<name>&seed=1 stages a deterministic scene for screenshots:
+// chop shop, reclaim a towed car at the impound lot, open a shop door,
+// buy the penthouse — otherwise start the next mission. District discovery
+// pays $25 per district (sixteen now) and feeds district control.
+// Q opens the weapon wheel. E on a driven car starts a carjack struggle
+// instead of an instant steal. Resting at an owned safehouse heals Leo
+// and autosaves. URL query ?shot=<name>&seed=1 stages a deterministic
+// scene for screenshots:
 //   shot=chase   — Leo in a car, 3-star police chase, HUD + minimap + objective
 //   shot=mission — beach shootout (mission 3) with gang members and HUD
 //   shot=city    — busy street: traffic, peds, taxi fare, on foot
@@ -17,6 +23,8 @@
 //   shot=shop    — garage upgrade shop open, Leo in a car by the Pay-n-Spray
 //   shot=finale  — Mission 9 finale: armored van, 5 stars, PD heli overhead
 //   shot=race    — street race mid-flight: Marina Sprint gates + rival + race HUD
+//   shot=wheel   — weapon wheel open on foot at night, SMG owned, 2 stars
+//   shot=store   — Marina Arms gun store open, Leo on foot at the door
 //   shot=start   — title screen over the city
 import { clamp, dist, mulberry32, hashSeed, rand } from './utils.js';
 import { buildCity, WORLD, LANDMARKS, districtAt, districtInfo, randomRoadPoint, randomFreePoint } from './city.js';
@@ -24,18 +32,25 @@ import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createPlayer, updatePlayerOnFoot, updatePlayerDriving, tryEnterCar, damagePlayer, respawn } from './player.js';
 import { spawnTraffic, spawnParked, updateTrafficCar, collideCars, makeCar, CAR_MODELS } from './vehicles.js';
-import { spawnPeds, updatePeds, scarePeds, carHitsPeds } from './peds.js';
+import { spawnPeds, updatePeds, scarePeds, carHitsPeds, spawnShopkeepers } from './peds.js';
 import { createWanted, addCrime, updateWanted, spawnPolice, updatePolice, updateHeli, payNSpray } from './police.js';
 import { updateBullets, updatePickups, spawnPickups, WEAPONS } from './combat.js';
 import { createMissionState, startMission, updateMissions, updateGang, missionObjectiveText, currentMissionDef, MIDNIGHT_CHECKPOINTS } from './missions.js';
 import { createSideJobState, updateSideJobs } from './sidejobs.js';
 import { createRaceState, updateRaces, startRace, abandonRace, nearestRaceStart } from './races.js';
 import { createChopState, updateChopShop, sellCarToChop, reclaimImpound } from './chopshop.js';
-import { drawWorld, drawHUD, drawTitle, drawPause, drawEndScreen, drawShop } from './render.js';
+import { drawWorld, drawHUD, drawTitle, drawPause, drawEndScreen, drawShop, drawWheel, drawStore } from './render.js';
 import { lightAt, isNight, pedTarget, CYCLE } from './daynight.js';
 import { createShop, buyUpgrade, UPGRADES } from './garage.js';
+import { loadSave, applySave, saveNow, createSaveState, autosaveTick } from './save.js';
+import { createRespectState, addRespect, updateRespect, restoreRespect, chopBonus } from './respect.js';
+import { createWheelState, openWheel, closeWheel, updateWheel, switchWeapon, cycleWeapon } from './weaponwheel.js';
+import { createShopState, nearestShop, nearestSafehouse, openShopOverlay, buySelected, buySafehouse, ownsSafehouse, shopItems, SHOPS, SAFEHOUSES } from './shops.js';
+import { createCarjackState, updateCarjack, startCarjack, nearestJackableCar } from './carjack.js';
+import { createTurfState, maybeTurfAttack, updateTurfWar } from './gangwar.js';
+import { createCollectibleState, updateCollectibles, restoreCollectibles } from './collectibles.js';
+import { createAchievementState, checkAchievements, updateAchievements, restoreAchievements } from './achievements.js';
 
-const SAVE_KEY = 'solmarina-save-v1';
 const params = new URLSearchParams(location.search);
 const SHOT = params.get('shot') || '';
 const SEED = parseInt(params.get('seed') || '1', 10) || 1;
@@ -53,24 +68,11 @@ resize();
 const input = createInput(canvas);
 const audio = createAudio();
 
-function loadSave() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50, raceBest: {} };
-    const s = JSON.parse(raw);
-    return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50, raceBest: {}, ...s };
-  } catch {
-    return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50 };
-  }
-}
-
 function buildGame() {
   const rng = mulberry32(SEED);
   const city = buildCity(SEED);
   const saveData = loadSave();
   const player = createPlayer();
-  player.money = saveData.money;
-  player.stats.missionsDone = 0;
   const game = {
     city, rng, input, audio,
     player,
@@ -101,29 +103,46 @@ function buildGame() {
     heli: null,        // police helicopter, or null when the PD has none up
     heliSoundTimer: 0,
     shop: createShop(),
-    state: 'title', // title | playing | paused | ended | shop
+    state: 'title', // title | playing | paused | ended | shop | wheel | store
     endKind: null,
     endLost: 0,
     endTimer: 0,
     saveData,
+    saveState: createSaveState(),
+    respect: null,     // respect system (createRespectState below)
+    wheel: createWheelState(),
+    carjack: createCarjackState(),
+    turfWar: createTurfState(),
+    collectibles: createCollectibleState([]),
+    achievements: createAchievementState([]),
+    shopState: createShopState(),
+    garageCars: [],    // cars stored at the safehouse garage
+    safehousesOwned: ['safehouse'],
+    settings: { showHints: true },
+    restTimer: 0,      // seconds spent standing in a safehouse rest zone
+    rested: false,     // toast/saved flag for the current rest
     shot: SHOT,
     view: { w: canvas.width, h: canvas.height },
     save() {
-      const s = {
-        money: Math.max(game.player.money, 0),
-        missionsDone: game.player.stats.missionsDone,
-        faresDone: game.player.stats.faresDone,
-        bestMoney: Math.max(game.saveData.bestMoney, game.player.money),
-        raceBest: { ...game.races.best },
-      };
-      game.saveData = s;
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
+      saveNow(game, game.saveState ? game.saveState.activeSlot : 0, true);
     },
   };
+  // Restore the save: money, stats, weapons, discoveries, garage cars.
+  applySave(game, saveData);
+  // Collectibles restore from the snapshot (found indices + bonus flag).
+  restoreCollectibles(game, saveData.packages || []);
+  // Achievements restore from the snapshot (unlocked ids).
+  restoreAchievements(game, saveData.achievements || []);
+  // Respect restores from the snapshot (points + district control).
+  game.respect = restoreRespect(game, {
+    points: saveData.respect || 0,
+    control: saveData.respectControl || {},
+  });
   // World population.
   game.cars.push(...spawnTraffic(city, 18, rng));
   game.cars.push(...spawnParked(city, 12, rng));
   game.peds = spawnPeds(city, 30, rng);
+  game.peds.push(...spawnShopkeepers()); // one keeper at each shop door
   game.pickups = spawnPickups(city, rng, 10);
   // Street-circuit best times survive reloads (saved under raceBest).
   game.races.best = { ...(saveData.raceBest || {}) };
@@ -179,7 +198,10 @@ function handleEvents(dt) {
     else if (ev.type === 'kill') {
       addParticles(ev.x, ev.y, '#c22a2a', 12, 120);
       game.player.stats.kills++;
-      if (ev.who === 'gang') game.player.stats.rep = (game.player.stats.rep || 0) + 5;
+      if (ev.who === 'gang') {
+        game.player.stats.rep = (game.player.stats.rep || 0) + 5;
+        if (game.respect) addRespect(game, 5, 'Viper down');
+      }
       if (ev.who === 'ped' || ev.who === 'gang') addCrime(game.wanted, ev.who === 'ped' ? 15 : 5, game.time);
     } else if (ev.type === 'hit' || ev.type === 'copHit') {
       addParticles(ev.x, ev.y, '#ffd94a', 6, 90);
@@ -191,6 +213,8 @@ function handleEvents(dt) {
       // Shooting down the PD helicopter pays a bounty and drops a star.
       game.player.money += 500;
       game.player.stats.rep = (game.player.stats.rep || 0) + 50;
+      if (game.respect) addRespect(game, 50, 'Helicopter down');
+      game.player.stats.helisDown = (game.player.stats.helisDown || 0) + 1;
       game.wanted.stars = Math.max(0, game.wanted.stars - 1);
       game.wanted.heat = 0;
       game.shake = Math.max(game.shake, 10);
@@ -218,6 +242,8 @@ function endGame(kind) {
   game.endTimer = 0;
   audio.engine(null);
   audio.busted();
+  // Getting caught costs respect as well as cash: the street notices.
+  if (game.respect) addRespect(game, kind === 'busted' ? -150 : -100, kind === 'busted' ? 'Busted by the PD' : 'Wasted');
   game.save();
 }
 
@@ -234,6 +260,7 @@ function update(dt) {
   }
   game.player.stats.playTime += dt;
   updateCamera(dt);
+  updateRespect(game, dt);
   const p = game.player;
 
   // District discovery: the first visit to each of the sixteen districts
@@ -277,9 +304,53 @@ function update(dt) {
     } else if (input.wasPressed('down')) {
       game.shop.selected = (game.shop.selected + 1) % UPGRADES.length;
     }
+  } else if (game.state === 'wheel') {
+    // The weapon wheel freezes the world; the mouse picks the slot and
+    // releasing Q (or clicking) confirms the pick. Staged scenes keep the
+    // wheel open (sticky) so the screenshot catches it.
+    updateWheel(game, dt);
+    if (!game.wheel.sticky && !input.is('wheel')) closeWheel(game);
+  } else if (game.state === 'store') {
+    // The store overlay freezes the world: navigate, buy, close.
+    const st = game.shopState;
+    const itemCount = shopItems(game, st.open).length || 1;
+    if (input.wasPressed('escape') || input.wasPressed('interact')) {
+      game.state = 'playing';
+      st.open = null;
+    } else if (input.wasPressed('up')) {
+      st.selected = (st.selected + itemCount - 1) % itemCount;
+    } else if (input.wasPressed('down')) {
+      st.selected = (st.selected + 1) % itemCount;
+    } else if (input.wasPressed('confirm')) {
+      const msg = buySelected(game);
+      if (msg) { game.missions.message = msg; game.missions.messageTimer = 3; }
+    }
   } else if (game.state === 'playing') {
-    // Enter / exit car.
-    if (input.wasPressed('enter')) tryEnterCar(game, game.time);
+    // Q opens the weapon wheel (on foot or in a car — picking a gun is
+    // picking a gun). The wheel state freezes the world until closed.
+    if (input.wasPressed('wheel')) openWheel(game);
+    // Enter / exit car — or start a carjack on a driven car.
+    if (input.wasPressed('enter')) {
+      if (!p.inCar) {
+        // A carjack in progress owns the E key: pressing it again must not
+        // bypass the struggle with an instant steal (tryEnterCar).
+        if (game.carjack.active) {
+          // Hold on — the struggle ticks down in updateCarjack.
+        } else {
+          const jackable = nearestJackableCar(game);
+          if (jackable) {
+            const msg = startCarjack(game, jackable);
+            if (msg) game.events.push({ type: 'toast', text: msg });
+          } else {
+            tryEnterCar(game, game.time);
+          }
+        }
+      } else {
+        tryEnterCar(game, game.time);
+      }
+    }
+    // A carjack in progress ticks down while Leo holds on.
+    updateCarjack(game, dt, game.time);
     // Honk (in a car only).
     if (input.wasPressed('horn') && p.inCar) game.audio.horn();
     // C cycles the car radio through its four stations (Sol / Noche /
@@ -303,13 +374,16 @@ function update(dt) {
     // F does ONE thing per press, in priority order: near the garage while
     // wanted it pays for Pay-n-Spray; in a car at the chop shop it sells
     // the car to the crusher; at the impound lot it buys Leo's towed car
-    // back; otherwise it starts the next mission. Before this fix a single
-    // F press near the garage did both at once — starting a mission and
-    // charging the spray fee in the same frame.
+    // back; at a shop door it opens the shop; at the penthouse it buys it;
+    // otherwise it starts the next mission. Before the priority fix a
+    // single F press near the garage did both at once — starting a mission
+    // and charging the spray fee in the same frame.
     if (input.wasPressed('interact')) {
       const nearGarage = dist(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y) < 110;
       const nearChop = dist(p.x, p.y, LANDMARKS.chopshop.x, LANDMARKS.chopshop.y) < 110;
       const nearImpound = dist(p.x, p.y, LANDMARKS.impound.x, LANDMARKS.impound.y) < 110;
+      const shop = nearestShop(game);
+      const house = nearestSafehouse(game);
       if (nearGarage && game.wanted.stars > 0) {
         const fee = payNSpray(game);
         if (fee > 0) game.events.push({ type: 'toast', text: `Pay-n-Spray: wanted cleared for $${fee}` });
@@ -318,6 +392,10 @@ function update(dt) {
         game.events.push({ type: 'toast', text: sellCarToChop(game) });
       } else if (nearImpound && game.impound) {
         game.events.push({ type: 'toast', text: reclaimImpound(game) });
+      } else if (shop) {
+        openShopOverlay(game, shop);
+      } else if (house && house.id === 'penthouse' && !ownsSafehouse(game, 'penthouse')) {
+        game.events.push({ type: 'toast', text: buySafehouse(game, 'penthouse') });
       } else if (game.missions.stage === 'idle') {
         startMission(game);
       }
@@ -383,6 +461,8 @@ function update(dt) {
           car.nearMissAt = game.time;
           p.money += 25;
           p.stats.rep = (p.stats.rep || 0) + 2;
+          p.stats.nearMisses = (p.stats.nearMisses || 0) + 1;
+          if (game.respect) addRespect(game, 2, 'Near miss');
           game.floaters.push({ x: p.car.x, y: p.car.y - 40, text: 'NEAR MISS +$25', color: '#7ad8ff', life: 1.4, maxLife: 1.4 });
           game.events.push({ type: 'cash' });
         }
@@ -403,6 +483,12 @@ function update(dt) {
     updateSideJobs(game, dt);
     updateRaces(game, dt); // street circuit: countdown, gates, rival, prizes
     updateChopShop(game, dt); // chop-shop sale cooldown ticks down
+    maybeTurfAttack(game, dt); // Viper turf war: attacks on owned districts
+    updateTurfWar(game, dt);
+    updateCollectibles(game, dt); // hidden packages: walk over to collect
+    // Achievements: cheap predicate checks every frame; unlocks toast + save.
+    checkAchievements(game);
+    updateAchievements(game, dt);
     // The streets thin out after dark: top the peds back up toward the
     // target for this hour (daynight.pedTarget), a few at a time.
     const alive = game.peds.filter((pd) => !pd.dead).length;
@@ -410,7 +496,7 @@ function update(dt) {
       const s = randomFreePoint(game.city, Math.random);
       game.peds.push({ x: s.x, y: s.y, angle: 0, speed: 0, walkSpeed: 30, pace: 1, state: 'walk', target: null, shirt: '#3a6fd8', skin: '#e8b4b8', hair: '#2a2a2a', fleeTimer: 0, panicTimer: 0, chatTimer: 0, chatPartner: null, dead: false, bob: 0 });
     }
-    updateWanted(game.wanted, dt, game.time, false);
+    updateWanted(game.wanted, dt, game.time, false, game.respect ? game.respect.tier : 0);
     spawnPolice(game, dt);
     updatePolice(game, dt, game.time);
     updateHeli(game, dt, game.time);
@@ -421,6 +507,24 @@ function update(dt) {
         game.heliSoundTimer = 0.5;
         game.audio.heli();
       }
+    }
+
+    // Resting at an owned safehouse: stand in the rest zone and Leo heals
+    // 20 HP/s; reaching full health saves the game and toasts once.
+    const restHouse = nearestSafehouse(game);
+    if (restHouse && ownsSafehouse(game, restHouse.id) && !p.inCar) {
+      game.restTimer += dt;
+      if (p.health < 100) {
+        p.health = clamp(p.health + 20 * dt, 0, 100);
+        game.rested = false;
+      } else if (!game.rested && game.restTimer > 1) {
+        game.rested = true;
+        game.save();
+        game.events.push({ type: 'toast', text: `Rested at the ${restHouse.name} — game saved` });
+      }
+    } else {
+      game.restTimer = 0;
+      game.rested = false;
     }
 
     // Particles.
@@ -444,6 +548,8 @@ function update(dt) {
       const car = makeCar(spot.x, spot.y, rand(0, Math.PI * 2), { kind: 'traffic', driver: 'traffic' });
       game.cars.push(car);
     }
+    // Quiet autosave every 45 seconds of play.
+    autosaveTick(game, dt);
     handleEvents(dt);
     // Wasted check (damagePlayer pushes the event; handleEvents ends the game).
     if (p.health <= 0 && game.state === 'playing') endGame('wasted');
@@ -459,9 +565,11 @@ function update(dt) {
 function restart() {
   const keepMoney = game.player.money;
   const keepStats = game.player.stats;
+  const keepRespect = game.respect;
   game = buildGame();
   game.player.money = keepMoney;
   game.player.stats = keepStats;
+  game.respect = keepRespect;
   game.state = 'playing';
   audio.engine(null);
 }
@@ -584,6 +692,43 @@ function stageShot(name) {
     game.state = 'shop';
     game.shop.open = true;
     game.shop.selected = 0;
+  } else if (name === 'wheel') {
+    // Weapon wheel staging: Leo on foot at dusk in Old Town, SMG + shotgun
+    // owned, 2 stars, the wheel open on the SMG slot — the new HUD star.
+    game.clock = 150; game.light = lightAt(150);
+    p.x = 750; p.y = 750; p.angle = 0.6;
+    p.weapon = 'smg'; p.weapons.smg = true; p.weapons.shotgun = true;
+    p.ammo.smg = 120; p.ammo.shotgun = 12;
+    p.money = 1250;
+    if (game.respect) addRespect(game, 420, 'staging');
+    game.wanted.stars = 2; game.wanted.heat = 50; game.wanted.lastCrime = 0;
+    game.missions.current = 2; game.missions.stage = 'active'; game.missions.needed = 5;
+    game.missions.target = { x: LANDMARKS.beach.x, y: LANDMARKS.beach.y, label: 'Playa Sol' };
+    game.gang.length = 0;
+    for (let i = 0; i < 3; i++) {
+      game.gang.push({
+        x: 700 + i * 130, y: 900 + (i % 2) * 40, angle: -Math.PI / 2,
+        health: 100, dead: false, shootTimer: 1 + i * 0.4, state: 'guard', target: null, speed: 0,
+      });
+    }
+    game.cars.push(...spawnTraffic(game.city, 4, rng));
+    openWheel(game);
+    game.wheel.hovered = 1; // SMG slot highlighted
+    game.wheel.sticky = true; // keep the wheel open for the screenshot
+  } else if (name === 'store') {
+    // Marina Arms staging: Leo on foot at the gun store door in Old Town,
+    // $1,500 in pocket, the store overlay open on the SMG row.
+    p.x = 375; p.y = 600; p.angle = 0;
+    p.money = 1500;
+    p.weapons.smg = true; p.ammo.smg = 30;
+    game.shopState.open = 'gunstore';
+    game.shopState.selected = 0;
+    game.state = 'store';
+    game.cars.push(...spawnTraffic(game.city, 4, rng));
+    for (let i = 0; i < 6; i++) {
+      const s = randomFreePoint(game.city, rng);
+      game.peds.push({ x: s.x, y: s.y, angle: rand(0, 6), speed: 20, walkSpeed: 30, state: 'walk', target: null, shirt: '#3a6fd8', skin: '#e8b4b8', hair: '#2a2a2a', fleeTimer: 0, panicTimer: 0, dead: false, bob: 0 });
+    }
   } else if (name === 'police') {
     // Roadblock chase: 4 stars, police cars ahead and behind, Leo speeding
     // south down the x=1050 road, bank already robbed (escape stage).
@@ -721,6 +866,16 @@ function frame(now) {
     drawWorld(ctx, game, game.view);
     drawHUD(ctx, game, game.view);
     drawShop(ctx, game, game.view);
+  } else if (game.state === 'wheel') {
+    update(dt);
+    drawWorld(ctx, game, game.view);
+    drawHUD(ctx, game, game.view);
+    drawWheel(ctx, game, game.view);
+  } else if (game.state === 'store') {
+    update(dt);
+    drawWorld(ctx, game, game.view);
+    drawHUD(ctx, game, game.view);
+    drawStore(ctx, game, game.view);
   } else if (game.state === 'ended') {
     update(dt);
     drawWorld(ctx, game, game.view);
@@ -735,7 +890,8 @@ function frame(now) {
 }
 
 // Keyboard weapon switching (Digit1/2/3/4) and shop buying: in the shop the
-// same digits buy upgrades instead of switching weapons.
+// same digits buy upgrades instead of switching weapons; in a store they
+// select the row, and Enter buys it.
 window.addEventListener('keydown', (e) => {
   const p = game.player;
   if (game.state === 'shop') {
@@ -750,11 +906,26 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (e.code === 'Digit1' && p.weapons.pistol) p.weapon = 'pistol';
-  if (e.code === 'Digit2' && p.weapons.smg) p.weapon = 'smg';
-  if (e.code === 'Digit3' && p.weapons.shotgun) p.weapon = 'shotgun';
-  if (e.code === 'Digit4' && p.weapons.rifle) p.weapon = 'rifle';
+  if (game.state === 'store') {
+    if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3' || e.code === 'Digit4' || e.code === 'Digit5') {
+      game.shopState.selected = Number(e.code.slice(-1)) - 1;
+    }
+    return;
+  }
+  if (e.code === 'Digit1') switchWeapon(game, 'pistol');
+  if (e.code === 'Digit2') switchWeapon(game, 'smg');
+  if (e.code === 'Digit3') switchWeapon(game, 'shotgun');
+  if (e.code === 'Digit4') switchWeapon(game, 'rifle');
+  if (e.code === 'Digit5') switchWeapon(game, 'molotov');
+  if (e.code === 'Digit6') switchWeapon(game, 'revolver');
 });
+
+// Mouse-wheel weapon cycling: scroll to the next owned gun without opening
+// the wheel. The wheel state still owns the logic (cycleWeapon).
+window.addEventListener('wheel', (e) => {
+  if (game.state !== 'playing') return;
+  cycleWeapon(game, e.deltaY > 0 ? 1 : -1);
+}, { passive: true });
 
 // The DOM radio chip (index.html #radio) shows the station the synth is
 // playing right now; it follows dial changes and the chase groove.

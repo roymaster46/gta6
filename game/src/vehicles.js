@@ -19,6 +19,8 @@ export const CAR_MODELS = [
   { name: 'Patrulla', len: 48, wid: 23, top: 200, accel: 300 },  // police interceptor
   { name: 'Camioneta', len: 52, wid: 24, top: 135, accel: 200 }, // pickup
   { name: 'Moto Sol', len: 34, wid: 14, top: 170, accel: 320 },  // scooter — narrow, quick off the line, sketchy at speed
+  { name: 'Vipero', len: 46, wid: 22, top: 195, accel: 290 },    // gang muscle car — matte black, fast, rare in traffic
+  { name: 'Limosina', len: 58, wid: 24, top: 145, accel: 190 },  // stretch limo — slow, wide, worth a fortune at the chop shop
 ];
 let nextCarId = 1;
 

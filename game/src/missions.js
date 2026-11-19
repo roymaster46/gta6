@@ -1,14 +1,18 @@
-// missions.js — Solmarina story chain (12 missions) + repeatable taxi fares.
+// missions.js — Solmarina story chain (16 missions) + repeatable taxi fares.
 // Each mission has an id, title, briefing, objective text, a target point and
 // a stage machine driven by updateMissions(game, dt). Completing one pays
-// cash, advances the chain and saves progress. Missions 6-9 are timed: fail
-// the clock and the job is lost, but the chain lets you retry it. Mission 7
-// is a night job — starting it in daylight fast-forwards the clock to
-// nightfall, then sends Leo across the city through three checkpoints under
-// 5-star heat. Mission 8 runs the docks at the port; Mission 9 is the
-// finale — steal the armored van and run a 5-star escape to the boat.
-// Mission 10 is the epilogue: survive 90 seconds of 5-star heat and the
-// city is yours.
+// cash, advances the chain, banks respect and saves progress. Missions 6-9
+// are timed: fail the clock and the job is lost, but the chain lets you
+// retry it. Mission 7 is a night job — starting it in daylight fast-forwards
+// the clock to nightfall, then sends Leo across the city through three
+// checkpoints under 5-star heat. Mission 8 runs the docks at the port;
+// Mission 9 is the finale — steal the armored van and run a 5-star escape
+// to the boat. Mission 10 is the epilogue: survive 90 seconds of 5-star
+// heat and the city is yours. Missions 11-12 raise the stakes (a Viper
+// setup, then the eight-stop grand tour), and the new second act — 13-16 —
+// closes the Viper war: an ambush at the docks, a four-drop smuggling run,
+// burning the Vipers' stash cars, and one last 5-star coronation at the
+// yacht. Failing a mission now costs 25 respect as well as the job.
 import { dist, rand, fmtCountdown } from './utils.js';
 import { LANDMARKS, randomRoadPoint } from './city.js';
 import { makeCar, CAR_MODELS } from './vehicles.js';
@@ -16,6 +20,7 @@ import { addCrime } from './police.js';
 import { advanceToNight, isNight } from './daynight.js';
 import { cancelSideJobs, sideJobObjectiveText } from './sidejobs.js';
 import { raceObjectiveText, nearestRaceStart } from './races.js';
+import { addRespect } from './respect.js';
 
 export const MISSION_DEFS = [
   {
@@ -90,6 +95,30 @@ export const MISSION_DEFS = [
     objective: 'Hit all 8 district checkpoints',
     sayer: 'Maya', role: 'Getaway Driver', say: 'One last sunset tour, Leo. Eight stops, then the city is ours.',
   },
+  {
+    id: 13, title: 'Rico’s Revenge', pay: 5500,
+    brief: 'The Vipers answered the grand tour with an ambush at the docks. Eight of them hold the Docklands warehouse — clear them out and the war turns. Rico pays double for this one.',
+    objective: 'Eliminate the Vipers at the Docklands (0/8)',
+    sayer: 'Rico', role: 'Fixer', say: 'They hit us at the docks. Go finish it, Leo. All eight.',
+  },
+  {
+    id: 14, title: 'Four Drops', pay: 6500,
+    brief: 'Maya’s smuggling run: four drops, four districts, one night. Grab the duffel at the port and hit every drop before the PD wakes up — 200 seconds, 4-star heat from the first drop.',
+    objective: 'Deliver the duffel to all 4 drops',
+    sayer: 'Maya', role: 'Getaway Driver', say: 'Four drops, four districts. Don’t stop for anyone.',
+  },
+  {
+    id: 15, title: 'Smoke on the Water', pay: 7000,
+    brief: 'The Vipers stash their cars at the port — three of them, marked and waiting. Burn all three and their crew walks. Shoot them till they blow, or ram them till they burn.',
+    objective: 'Destroy the 3 Viper stash cars (0/3)',
+    sayer: 'Rico', role: 'Fixer', say: 'Three cars, one match. Burn their whole operation down.',
+  },
+  {
+    id: 16, title: 'Sunset King', pay: 10000,
+    brief: 'The coronation. The whole PD, the whole Viper crew, one last sunset: survive 120 seconds of 5-star heat, then bring the crown to the yacht. Do it and the city is yours — for real this time.',
+    objective: 'Survive 120 seconds of 5-star heat, then reach the yacht',
+    sayer: 'Maya', role: 'Getaway Driver', say: 'One last sunset, Leo. Survive it, and you’re the king.',
+  },
 ];
 
 // The three Midnight Run checkpoints, in order: park, bridge, beach.
@@ -121,9 +150,18 @@ export const GRAND_TOUR = [
   { x: 1800, y: 2280, label: 'Stop 8 — Coral Beach' },
 ];
 
+// The four Four Drops delivery points (mission 14): one per district,
+// south to north, so the run crosses the whole map under the clock.
+export const FOUR_DROPS = [
+  { x: 600, y: 2280, label: 'Drop 1 — Playa Sol' },
+  { x: 300, y: 1500, label: 'Drop 2 — Palm Park' },
+  { x: 2025, y: 500, label: 'Drop 3 — Hospital Row' },
+  { x: 1800, y: 150, label: 'Drop 4 — Yacht Basin' },
+];
+
 export function createMissionState() {
   return {
-    current: 0,          // index into MISSION_DEFS (0-based); 12 = all done
+    current: 0,          // index into MISSION_DEFS (0-based); 16 = all done
     stage: 'idle',       // idle | active | done
     target: null,        // {x, y, label}
     progress: 0,
@@ -138,8 +176,9 @@ export function createMissionState() {
     taxiCooldown: 0,
     packageCarried: false,
     heistCash: 0,
-    checkpoints: null,   // mission 7/8/12: [{x, y, label, done}]
+    checkpoints: null,   // mission 7/8/12/14: [{x, y, label, done}]
     checkpointIndex: 0,
+    stashCars: null,     // mission 15: the three Viper cars to destroy
   };
 }
 
@@ -202,6 +241,20 @@ export function missionObjectiveText(game) {
       }
       return `Grand tour complete — ${fmtCountdown(missionTimeLeft(ms))} left`;
     }
+    if (def.id === 13) return `Eliminate the Vipers at the Docklands (${ms.progress}/${ms.needed})`;
+    if (def.id === 14) {
+      if (!ms.packageCarried) return `Grab the duffel at the port — ${fmtCountdown(missionTimeLeft(ms))} left`;
+      const done = ms.checkpointIndex;
+      if (done < FOUR_DROPS.length) {
+        return `Drop ${done + 1}/4 — ${FOUR_DROPS[done].label} — ${fmtCountdown(missionTimeLeft(ms))} left`;
+      }
+      return `All drops made — ${fmtCountdown(missionTimeLeft(ms))} left`;
+    }
+    if (def.id === 15) return `Destroy the Viper stash cars (${ms.progress}/${ms.needed}) — ${fmtCountdown(missionTimeLeft(ms))} left`;
+    if (def.id === 16) {
+      if (!ms.packageCarried) return `Survive the 5-star heat — ${fmtCountdown(missionTimeLeft(ms))} left`;
+      return `You survived — reach the yacht to claim the crown — ${fmtCountdown(missionTimeLeft(ms))} left`;
+    }
     return def.objective;
   }
   // A street race outranks a side job the same way a mission does — but a
@@ -225,6 +278,20 @@ export function missionObjectiveText(game) {
   return def.objective;
 }
 
+// Spawn a Viper squad at a point: n gang members in 'guard' or 'hunt'
+// state, spread around the anchor so they do not stack on one pixel.
+export function spawnViperSquad(game, x, y, n, state = 'guard') {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2);
+    const r = rand(40, 180);
+    game.gang.push({
+      x: x + Math.cos(a) * r, y: y + Math.sin(a) * r,
+      angle: rand(0, Math.PI * 2), health: 100, dead: false,
+      shootTimer: rand(0.5, 2), state, target: null, speed: 0,
+    });
+  }
+}
+
 export function startMission(game) {
   const ms = game.missions;
   const def = currentMissionDef(ms);
@@ -239,6 +306,7 @@ export function startMission(game) {
   ms.packageCarried = false;
   ms.checkpoints = null;
   ms.checkpointIndex = 0;
+  ms.stashCars = null;
   const L = LANDMARKS;
   if (def.id === 1) {
     ms.target = { x: L.marina.x, y: L.marina.y, label: 'Pick up the client' };
@@ -256,14 +324,7 @@ export function startMission(game) {
     ms.needed = 5;
     ms.target = { x: L.beach.x, y: L.beach.y, label: 'Playa Sol' };
     game.gang.length = 0;
-    for (let i = 0; i < 5; i++) {
-      const gx = 900 + i * 140 + rand(-40, 40);
-      const gy = 2200 + rand(-30, 30);
-      game.gang.push({
-        x: gx, y: gy, angle: rand(0, 6.28), health: 100, dead: false,
-        shootTimer: rand(1, 2.5), state: 'guard', target: null, speed: 0,
-      });
-    }
+    spawnViperSquad(game, L.beach.x, L.beach.y, 5, 'guard');
   } else if (def.id === 4) {
     ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the package' };
   } else if (def.id === 5) {
@@ -323,6 +384,46 @@ export function startMission(game) {
     ms.checkpoints = GRAND_TOUR.map((c) => ({ ...c, done: false }));
     ms.checkpointIndex = 0;
     ms.target = { x: GRAND_TOUR[0].x, y: GRAND_TOUR[0].y, label: GRAND_TOUR[0].label };
+  } else if (def.id === 13) {
+    // Rico's Revenge: eight Vipers hold the Docklands warehouse.
+    ms.needed = 8;
+    ms.target = { x: L.chopshop.x, y: L.chopshop.y, label: 'Docklands warehouse' };
+    game.gang.length = 0;
+    spawnViperSquad(game, L.chopshop.x, L.chopshop.y, 8, 'guard');
+    addCrime(game.wanted, 40, game.time);
+  } else if (def.id === 14) {
+    // Four Drops: grab the duffel, hit four drops across the map, 200s.
+    ms.timeLimit = 200;
+    ms.checkpoints = FOUR_DROPS.map((c) => ({ ...c, done: false }));
+    ms.checkpointIndex = 0;
+    ms.target = { x: L.port.x, y: L.port.y, label: 'Grab the duffel' };
+  } else if (def.id === 15) {
+    // Smoke on the Water: three marked Viper stash cars at the port.
+    ms.timeLimit = 180;
+    ms.needed = 3;
+    ms.stashCars = [];
+    const spots = [
+      { x: L.port.x - 60, y: L.port.y - 40 },
+      { x: L.port.x + 60, y: L.port.y + 20 },
+      { x: L.port.x - 20, y: L.port.y + 90 },
+    ];
+    for (const s of spots) {
+      const car = makeCar(s.x, s.y, rand(0, Math.PI * 2), {
+        kind: 'mission', driver: null, color: '#8a2a2a',
+        model: CAR_MODELS.find((m) => m.name === 'Camioneta') || CAR_MODELS[0], label: 'STASH',
+      });
+      game.cars.push(car);
+      ms.stashCars.push(car);
+    }
+    game.gang.length = 0;
+    spawnViperSquad(game, L.port.x, L.port.y, 3, 'guard');
+    ms.target = { x: L.port.x, y: L.port.y, label: 'Burn the stash cars' };
+  } else if (def.id === 16) {
+    // Sunset King: survive 120s of 5-star heat, then reach the yacht.
+    ms.timeLimit = 120;
+    addCrime(game.wanted, 100, game.time);
+    game.events.push({ type: 'siren' });
+    ms.target = null;
   }
   game.events.push({ type: 'missionStart' });
   // The crew talks: the mission's dialogue line shows on the bottom-center
@@ -347,6 +448,15 @@ export function completeMission(game) {
   game.player.money += def.pay;
   game.player.stats.missionsDone++;
   game.player.stats.rep = (game.player.stats.rep || 0) + 100;
+  // Respect flows through the respect system when it exists (it does in
+  // the live game; the headless tests build a fake game that may not).
+  if (game.respect) addRespect(game, 100, `Mission complete: ${def.title}`);
+  // District control: finishing a job owns a slice of the district Leo
+  // is standing in.
+  if (game.respect) {
+    const { controlHere, CONTROL_GAIN } = awaitRespectControl();
+    controlHere(game, CONTROL_GAIN.mission, def.title);
+  }
   game.events.push({ type: 'missionDone' });
   setMessage(game, `Mission complete: ${def.title} — +$${def.pay}`, 5);
   ms.current++;
@@ -357,12 +467,21 @@ export function completeMission(game) {
   ms.timeLimit = 0;
   ms.checkpoints = null;
   ms.checkpointIndex = 0;
+  ms.stashCars = null;
   game.gang.length = 0;
   game.save();
 }
 
+// Small indirection so missions.js keeps its import list short: the
+// district-control helpers live in respect.js.
+import { controlHere as _controlHere, CONTROL_GAIN as _CONTROL_GAIN } from './respect.js';
+function awaitRespectControl() {
+  return { controlHere: _controlHere, CONTROL_GAIN: _CONTROL_GAIN };
+}
+
 // A timed mission ran out of clock (or otherwise failed): the job is lost
-// but the chain stays put, so the player can retry it.
+// but the chain stays put, so the player can retry it. Failing costs 25
+// respect — the street notices.
 export function failMission(game, reason) {
   const ms = game.missions;
   const def = currentMissionDef(ms);
@@ -374,7 +493,9 @@ export function failMission(game, reason) {
   ms.timeLimit = 0;
   ms.checkpoints = null;
   ms.checkpointIndex = 0;
+  ms.stashCars = null;
   game.gang.length = 0;
+  if (game.respect) addRespect(game, -25, `Mission failed: ${def.title}`);
   game.events.push({ type: 'missionFail' });
   setMessage(game, `Mission failed: ${def.title} — ${reason}`, 5);
   game.save();
@@ -408,11 +529,15 @@ export function updateTaxi(game, dt) {
       setMessage(game, 'Passenger aboard — drive to the marker', 4);
     }
   } else if (dist(px, py, taxi.dropoff.x, taxi.dropoff.y) < 60) {
-    p.money += taxi.fare;
+    // Fares tip better when Leo is respected or dressed sharp.
+    let fare = taxi.fare;
+    if (game.respect && game.respect.tier >= 1) fare = Math.round(fare * 1.1);
+    p.money += fare;
     p.stats.faresDone++;
     p.stats.rep = (p.stats.rep || 0) + 10;
+    if (game.respect) addRespect(game, 10, 'Fare complete');
     game.events.push({ type: 'cash' });
-    setMessage(game, `Fare complete — +$${taxi.fare}`, 4);
+    setMessage(game, `Fare complete — +$${fare}`, 4);
     ms.taxi = null;
     ms.taxiCooldown = 8;
     game.save();
@@ -581,14 +706,7 @@ export function updateMissions(game, dt, time) {
         setMessage(game, 'It’s a setup! The Vipers are hunting you — run!', 5);
         // Four Viper hunters spawn around the port and chase Leo down.
         game.gang.length = 0;
-        for (let i = 0; i < 4; i++) {
-          const a = rand(0, Math.PI * 2);
-          game.gang.push({
-            x: L.port.x + Math.cos(a) * rand(120, 220), y: L.port.y + Math.sin(a) * rand(120, 220),
-            angle: rand(0, Math.PI * 2), health: 100, dead: false,
-            shootTimer: rand(0.5, 1.5), state: 'hunt', target: null, speed: 0,
-          });
-        }
+        spawnViperSquad(game, L.port.x, L.port.y, 4, 'hunt');
       }
     } else if (dist(px, py, L.safehouse.x, L.safehouse.y) < 90) {
       completeMission(game);
@@ -610,6 +728,57 @@ export function updateMissions(game, dt, time) {
         }
       }
     }
+  } else if (def.id === 13) {
+    ms.progress = game.gang.filter((g) => g.dead).length;
+    if (ms.progress >= ms.needed) completeMission(game);
+  } else if (def.id === 14) {
+    if (!ms.packageCarried) {
+      if (dist(px, py, L.port.x, L.port.y) < 70) {
+        ms.packageCarried = true;
+        addCrime(game.wanted, 70, time);
+        game.events.push({ type: 'siren' });
+        ms.target = { x: FOUR_DROPS[0].x, y: FOUR_DROPS[0].y, label: FOUR_DROPS[0].label };
+        setMessage(game, 'Duffel grabbed! 4-star wanted — hit all 4 drops!', 5);
+      }
+    } else if (ms.checkpointIndex < FOUR_DROPS.length) {
+      const cp = FOUR_DROPS[ms.checkpointIndex];
+      if (dist(px, py, cp.x, cp.y) < 90) {
+        ms.checkpoints[ms.checkpointIndex].done = true;
+        ms.checkpointIndex++;
+        game.events.push({ type: 'pickup' });
+        if (ms.checkpointIndex < FOUR_DROPS.length) {
+          const next = FOUR_DROPS[ms.checkpointIndex];
+          ms.target = { x: next.x, y: next.y, label: next.label };
+          setMessage(game, `Drop ${ms.checkpointIndex}/4 made — next: ${next.label}`, 4);
+        } else {
+          setMessage(game, 'All drops made — Maya’s run is done!', 4);
+          completeMission(game);
+        }
+      }
+    }
+  } else if (def.id === 15) {
+    // A stash car counts when it is wrecked: health at zero. Bullets chip
+    // car health (combat.js) and ramming does the rest — updateBullets and
+    // the car-collision code both feed car.damage, so either path works.
+    const cars = ms.stashCars || [];
+    ms.progress = cars.filter((c) => c.health <= 0 || c.damage >= 100).length;
+    if (ms.progress >= ms.needed) completeMission(game);
+  } else if (def.id === 16) {
+    // Phase one: survive the clock. Phase two: the crown — reach the yacht.
+    // Surviving resets the clock to a fresh 60 seconds for the run to the
+    // yacht: without the reset the old 120-second limit would fail the job
+    // the instant phase two began.
+    if (!ms.packageCarried) {
+      if (ms.timer >= ms.timeLimit) {
+        ms.packageCarried = true;
+        ms.timer = 0;
+        ms.timeLimit = 60;
+        ms.target = { x: L.yacht.x, y: L.yacht.y, label: 'Claim the crown at the yacht' };
+        setMessage(game, 'You survived the whole city — now take the crown at the yacht!', 5);
+      }
+    } else if (dist(px, py, L.yacht.x, L.yacht.y) < 90) {
+      completeMission(game);
+    }
   }
   // Timed missions: the clock runs out only while the job is still active
   // (completeMission above already set stage back to idle on success).
@@ -621,13 +790,17 @@ export function updateMissions(game, dt, time) {
     9: 'the crew left without you — the van never arrived',
     11: 'the Vipers got the package — the setup worked',
     12: 'the sun set on the tour — too slow',
+    14: 'the buyers walked — the drops went cold',
+    15: 'the Vipers moved their stash — too slow',
+    16: 'the crown slipped away — the city moved on',
   };
   if (ms.stage === 'active' && ms.timeLimit > 0 && ms.timer > ms.timeLimit) {
     failMission(game, FAIL_REASONS[def.id] || 'time ran out');
   }
 }
 
-// Gang members (mission 3) shoot at the player when close.
+// Gang members (mission 3/13) shoot at the player when close. In a district
+// Leo owns, at respect tier 4+, they hold fire — the street knows him now.
 export function updateGang(game, dt, time) {
   const p = game.player;
   const px = p.inCar && p.car ? p.car.x : p.x;
@@ -636,7 +809,13 @@ export function updateGang(game, dt, time) {
     if (g.dead) continue;
     const d = dist(g.x, g.y, px, py);
     g.shootTimer -= dt;
-    if (d < 480 && g.shootTimer <= 0) {
+    // Owned turf at tier 4: Vipers hold fire unless Leo shoots first.
+    let holdFire = false;
+    if (game.respect) {
+      const { gangHoldsFire } = awaitGangRespect();
+      holdFire = gangHoldsFire(game, g.x, g.y);
+    }
+    if (d < 480 && g.shootTimer <= 0 && !holdFire) {
       g.shootTimer = 1.4 + Math.random();
       const w = { damage: 8, speed: 520, range: 480, color: '#ff6a4a' };
       game.bullets.push({
@@ -663,4 +842,9 @@ export function updateGang(game, dt, time) {
       g.angle = a;
     }
   }
+}
+
+import { gangHoldsFire as _gangHoldsFire } from './respect.js';
+function awaitGangRespect() {
+  return { gangHoldsFire: _gangHoldsFire };
 }

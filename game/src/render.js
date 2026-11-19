@@ -10,17 +10,28 @@
 // side-job markers on the world and the minimap, the Moto Sol scooter with
 // its rider, and a four-row upgrade shop. Newest: a notoriety row on the PD
 // RESPONSE panel, chop-shop and impound hints with minimap dots, and pause
-// stats for vigilante takedowns and chop-shop sales.
+// stats for vigilante takedowns and chop-shop sales. Newest: the weapon
+// wheel (hold Q) and the store overlay (Marina Arms, Sol Diner, Coral
+// Clothing) with world markers and minimap dots, a six-slot HUD loadout, a
+// respect-tier label on the REP bar, rain streaks in the weather band, a
+// carjack struggle bar, and a five-row upgrade shop (bulletproof tires).
 import { clamp, lerp, dist, TAU, hash2, repLevel } from './utils.js';
 import { WORLD, ROAD_W, LANDMARKS, districtAt } from './city.js';
 import { fmtMoney, fmtTime, fmtCountdown } from './utils.js';
 import { missionObjectiveText, currentMissionDef, MISSION_DEFS, MIDNIGHT_CHECKPOINTS } from './missions.js';
-import { phaseAt, clockLabel, isGoldenHour } from './daynight.js';
+import { phaseAt, clockLabel, isGoldenHour, weatherAt } from './daynight.js';
 import { UPGRADES, upgradeLevel, upgradeCost } from './garage.js';
 import { nitroReady, nitroActive } from './garage.js';
 import { sideJobTarget } from './sidejobs.js';
-import { RACE_CIRCUITS, RACE_START_RADIUS, raceTarget, racePosition, formatRaceTime, bestTimeText } from './races.js';
+import { RACE_CIRCUITS, RACE_START_RADIUS, raceTarget, racePosition, formatRaceTime, bestTimeText, seriesPoints, seriesRank } from './races.js';
 import { notorietyLevel } from './police.js';
+import { WHEEL_SLOTS, wheelWeapon, slotPosition, ammoLabel } from './weaponwheel.js';
+import { shopItems, shopMarkers, SHOPS } from './shops.js';
+import { tierFor } from './respect.js';
+import { carjackProgress } from './carjack.js';
+import { turfWarObjectiveText, turfWarTarget } from './gangwar.js';
+import { PACKAGES, packagesFound, packagesText, nearestPackage } from './collectibles.js';
+import { achievementsText } from './achievements.js';
 
 const SKY = '#ffd9a0';
 const GRASS = '#8ec06a';
@@ -271,6 +282,35 @@ export function drawWorld(ctx, game, view) {
   // Mission / taxi target marker (pulsing). drawMissionMarker picks the
   // mission target while a mission is active, else the taxi marker.
   drawMissionMarker(ctx, game);
+  // Shop + safehouse markers: small labelled diamonds so the new stores
+  // are findable in the world, not just on the minimap.
+  for (const m of shopMarkers()) {
+    if (m.x < x0 || m.x > x1 || m.y < y0 || m.y > y1) continue;
+    drawMarker(ctx, m.x, m.y, m.kind === 'safehouse' ? '#3ab86a' : '#ffd94a', m.kind === 'safehouse' ? '⌂' : '$');
+  }
+  // Hidden packages: unfound stashes shimmer gold in the world (only the
+  // ones on screen, so the player still has to hunt).
+  if (game.collectibles) {
+    for (let i = 0; i < PACKAGES.length; i++) {
+      if (game.collectibles.found.has(i)) continue;
+      const pk = PACKAGES[i];
+      if (pk.x < x0 || pk.x > x1 || pk.y < y0 || pk.y > y1) continue;
+      const pulse = 0.6 + 0.4 * Math.sin(game.time * 3 + i);
+      ctx.fillStyle = `rgba(255,217,74,${pulse})`;
+      ctx.save();
+      ctx.translate(pk.x, pk.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-7, -7, 14, 14);
+      ctx.restore();
+      ctx.fillStyle = '#7a5a00';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('$', pk.x, pk.y + 4);
+    }
+  }
+  // Turf war: a red diamond over the district under attack.
+  const turf = turfWarTarget(game);
+  if (turf) drawMarker(ctx, turf.x, turf.y, '#ff2a2a', '⚔');
   // Gang members (with health bars and a red diamond target marker).
   for (const g of game.gang) {
     if (g.dead) continue;
@@ -716,7 +756,7 @@ export function drawShop(ctx, game, view) {
   ctx.save();
   ctx.fillStyle = 'rgba(8,14,28,0.72)';
   ctx.fillRect(0, 0, w, h);
-  const pw = 460, ph = 360; // tall enough for four upgrade rows (engine, armour, nitro, tires)
+  const pw = 460, ph = 400; // tall enough for five upgrade rows (engine, armour, nitro, tires, bulletproof)
   const px = (w - pw) / 2, py = (h - ph) / 2;
   ctx.fillStyle = '#14202e';
   roundRect(ctx, px, py, pw, ph, 12); ctx.fill();
@@ -732,7 +772,7 @@ export function drawShop(ctx, game, view) {
   ctx.fillText(`Cash: ${fmtMoney(p.money)}  •  Car: ${p.car ? p.car.model.name : 'none'}`, w / 2, py + 62);
   const shop = game.shop;
   UPGRADES.forEach((def, i) => {
-    const y = py + 92 + i * 62;
+    const y = py + 88 + i * 56;
     const level = p.car ? upgradeLevel(p.car, def.id) : 0;
     const cost = upgradeCost(def, level);
     const selected = shop.selected === i;
@@ -766,7 +806,124 @@ export function drawShop(ctx, game, view) {
   ctx.textAlign = 'center';
   ctx.fillStyle = '#c8d8e8';
   ctx.font = '13px sans-serif';
-  ctx.fillText('1 / 2 / 3 / 4 buy  •  ↑ ↓ select  •  G or Esc close', w / 2, py + ph - 18);
+  ctx.fillText('1 / 2 / 3 / 4 / 5 buy  •  ↑ ↓ select  •  G or Esc close', w / 2, py + ph - 18);
+  ctx.restore();
+}
+
+// --- Weapon wheel -----------------------------------------------------------
+// Radial menu, drawn over the dimmed world while state === 'wheel': six
+// slots around Leo, each with its name, ammo and price when locked; the
+// hovered slot glows gold. The wheel freezes the world (main.js).
+export function drawWheel(ctx, game, view) {
+  const w = view.w, h = view.h;
+  const p = game.player;
+  const wheel = game.wheel || {};
+  ctx.save();
+  ctx.fillStyle = 'rgba(8,14,28,0.55)';
+  ctx.fillRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, R = 150;
+  // Centre: Leo's current weapon.
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.beginPath(); ctx.arc(cx, cy, 52, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#ffd94a';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, 52, 0, TAU); ctx.stroke();
+  ctx.fillStyle = '#ffd94a';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText((wheelWeapon(p.weapon) || { name: 'PISTOL' }).name.toUpperCase(), cx, cy - 4);
+  ctx.fillStyle = '#fff';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`AMMO ${ammoLabel(game, p.weapon)}`, cx, cy + 16);
+  ctx.font = 'bold 15px sans-serif';
+  ctx.fillStyle = '#fff';
+  // Title + hint sit above the wheel (the top slot is at cy - R, so the
+  // text must clear its circle: title at R+78, hint at R+60).
+  ctx.fillText('WEAPON WHEEL', cx, cy - R - 78);
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = '#c8d8e8';
+  ctx.fillText('Hold Q — move the mouse to pick, release to equip', cx, cy - R - 60);
+  WHEEL_SLOTS.forEach((slot, i) => {
+    const pos = slotPosition(i);
+    const sx = cx + pos.x * R, sy = cy + pos.y * R;
+    const owned = !!p.weapons[slot.id];
+    const hovered = wheel.hovered === i;
+    const cur = p.weapon === slot.id;
+    ctx.fillStyle = hovered ? 'rgba(255,217,74,0.35)' : owned ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.arc(sx, sy, 44, 0, TAU); ctx.fill();
+    ctx.strokeStyle = cur ? '#ffd94a' : hovered ? '#ffe9a0' : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = cur || hovered ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(sx, sy, 44, 0, TAU); ctx.stroke();
+    const wp = wheelWeapon(slot.id);
+    ctx.fillStyle = owned ? '#fff' : '#888';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText((wp ? wp.name : slot.id).toUpperCase(), sx, sy - 8);
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = owned ? '#c8d8e8' : '#ff9a9a';
+    ctx.fillText(owned ? `AMMO ${ammoLabel(game, slot.id)}` : `$${slot.price} — LOCKED`, sx, sy + 10);
+    ctx.fillStyle = '#888';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(`${i + 1}`, sx, sy + 26);
+  });
+  ctx.restore();
+}
+
+// --- Store overlay ----------------------------------------------------------
+// Full-screen shop overlay for Marina Arms / Sol Diner / Coral Clothing:
+// rows with name, blurb and price; owned rows show OWNED/WORN; 1-5 select,
+// Enter buys, Esc closes. Drawn over the dimmed world (state === 'store').
+export function drawStore(ctx, game, view) {
+  const w = view.w, h = view.h;
+  const p = game.player;
+  const st = game.shopState || {};
+  const shop = SHOPS.find((s) => s.id === st.open) || SHOPS[0];
+  const items = shopItems(game, shop.id);
+  ctx.save();
+  ctx.fillStyle = 'rgba(8,14,28,0.72)';
+  ctx.fillRect(0, 0, w, h);
+  const pw = 480, ph = 380;
+  const px = (w - pw) / 2, py = (h - ph) / 2;
+  ctx.fillStyle = '#14202e';
+  roundRect(ctx, px, py, pw, ph, 12); ctx.fill();
+  ctx.strokeStyle = '#ffd94a';
+  ctx.lineWidth = 2;
+  roundRect(ctx, px, py, pw, ph, 12); ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd94a';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillText(shop.name.toUpperCase(), w / 2, py + 38);
+  ctx.fillStyle = '#fff';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(`Cash: ${fmtMoney(p.money)}  •  ${shop.blurb}`, w / 2, py + 62);
+  items.forEach((item, i) => {
+    const y = py + 92 + i * 52;
+    const selected = st.selected === i;
+    if (selected) {
+      ctx.fillStyle = 'rgba(232,200,50,0.18)';
+      roundRect(ctx, px + 16, y - 6, pw - 32, 44, 8); ctx.fill();
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = selected ? '#ffd94a' : '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(`${i + 1}. ${item.name}`, px + 30, y + 14);
+    ctx.fillStyle = '#c8d8e8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(item.blurb || '', px + 30, y + 32);
+    ctx.textAlign = 'right';
+    if (item.owned) {
+      ctx.fillStyle = '#3ab86a';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(item.worn ? 'WORN' : 'OWNED', px + pw - 30, y + 22);
+    } else {
+      ctx.fillStyle = p.money >= item.price ? '#fff' : '#ff6a6a';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(`$${item.price}`, px + pw - 30, y + 22);
+    }
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#c8d8e8';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('1–5 select  •  Enter buy  •  Esc close', w / 2, py + ph - 18);
   ctx.restore();
 }
 
@@ -778,12 +935,13 @@ function missionStage(game) {
   const def = currentMissionDef(ms);
   if (!def) return null;
   if (ms.stage !== 'active') return { def, idle: true, frac: 0, label: 'Press F to start' };
-  if (def.id === 3) return { def, frac: ms.progress / Math.max(1, ms.needed), label: `${ms.progress}/${ms.needed} Vipers down` };
-  if (def.id === 7 || def.id === 8 || def.id === 12) {
+  if (def.id === 3 || def.id === 13) return { def, frac: ms.progress / Math.max(1, ms.needed), label: `${ms.progress}/${ms.needed} Vipers down` };
+  if (def.id === 7 || def.id === 8 || def.id === 12 || def.id === 14) {
     const total = (ms.checkpoints || []).length || 3;
     return { def, frac: ms.checkpointIndex / total, label: `${ms.checkpointIndex}/${total} checkpoints` };
   }
-  if (def.id === 10) return { def, frac: ms.timer / ms.timeLimit, label: `${fmtCountdown(ms.timeLimit - ms.timer)} to survive` };
+  if (def.id === 15) return { def, frac: ms.progress / Math.max(1, ms.needed), label: `${ms.progress}/${ms.needed} stash cars burned` };
+  if (def.id === 10 || def.id === 16) return { def, frac: ms.timer / ms.timeLimit, label: ms.packageCarried ? 'reach the yacht!' : `${fmtCountdown(ms.timeLimit - ms.timer)} to survive` };
   if (ms.timeLimit) return { def, frac: 1 - ms.timer / ms.timeLimit, label: `${fmtCountdown(ms.timeLimit - ms.timer)} left` };
   if (def.id === 1) return { def, frac: ms.progress, label: ms.progress ? 'client aboard' : 'pick up the client' };
   return { def, frac: ms.packageCarried ? 1 : 0, label: ms.packageCarried ? 'escape!' : 'in progress' };
@@ -985,7 +1143,10 @@ export function drawHUD(ctx, game, view) {
   ctx.fillText('HP', 176, 49);
   ctx.fillText('ARMOR', 176, 63);
   ctx.fillText('STAM', 176, 77);
-  ctx.fillText(`REP ${rep.level}`, 176, 91);
+  // REP bar label carries the respect tier name (Nobody → King), so the
+  // ladder reads at a glance without opening the pause menu.
+  const rTierName = tierFor(game.respect ? game.respect.points : (p.stats.rep || 0)).name;
+  ctx.fillText(`REP ${rep.level} ${rTierName.toUpperCase()}`, 176, 91);
   // Clock top-centre: sun/moon, phase name and the in-game time.
   const phase = phaseAt(game.clock ?? 0);
   const clockText = `${phase.name === 'Night' ? '☾' : '☀'}  ${phase.name}  ${clockLabel(game.clock ?? 0)}`;
@@ -1114,11 +1275,11 @@ export function drawHUD(ctx, game, view) {
     ctx.textAlign = 'center';
     ctx.fillText(hint, w / 2, h - 121);
   }
-  // Bottom-left: weapon slots 1–4, owned slots lit with ammo, locked slots
+  // Bottom-left: weapon slots 1–6, owned slots lit with ammo, locked slots
   // dimmed — the loadout reads at a glance, like the top games' HUDs.
   const sw = 58, sh = 46, gap = 8;
   const slotY = h - sh - 12;
-  const weapons = ['pistol', 'smg', 'shotgun', 'rifle'];
+  const weapons = ['pistol', 'smg', 'shotgun', 'rifle', 'molotov', 'revolver'];
   weapons.forEach((wName, i) => {
     const sx = 12 + i * (sw + gap);
     const owned = p.weapons[wName];
@@ -1203,6 +1364,75 @@ export function drawHUD(ctx, game, view) {
       ctx.fillText(Math.round(dist(game.player.x, game.player.y, target.x, target.y)) + 'm', ex, ey + 28);
     }
   }
+  // Shop hint when Leo is on foot near a store door, and the penthouse
+  // hint when he is standing at its door without owning it yet.
+  const nearShop = SHOPS.find((s) => dist(p.x, p.y, s.x, s.y) < 140);
+  if (!p.inCar && nearShop) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const hint = `Press F — ${nearShop.name} (${nearShop.blurb})`;
+    ctx.font = 'bold 13px sans-serif';
+    const hw = ctx.measureText(hint).width + 20;
+    roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
+    ctx.fillStyle = '#ffd94a';
+    ctx.textAlign = 'center';
+    ctx.fillText(hint, w / 2, h - 121);
+  } else if (!p.inCar && dist(p.x, p.y, LANDMARKS.penthouse.x, LANDMARKS.penthouse.y) < 140 && game.safehousesOwned && !game.safehousesOwned.includes('penthouse')) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const hint = 'Press F — Buy the Marina Penthouse ($4,000)';
+    ctx.font = 'bold 13px sans-serif';
+    const hw = ctx.measureText(hint).width + 20;
+    roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
+    ctx.fillStyle = '#3ab86a';
+    ctx.textAlign = 'center';
+    ctx.fillText(hint, w / 2, h - 121);
+  }
+  // Carjack struggle bar: while Leo is hauling a driver out, a gold bar
+  // over the centre of the screen shows the grab draining.
+  if (game.carjack && game.carjack.active) {
+    const frac = carjackProgress(game);
+    const bw = 220, bx = (w - bw) / 2, by = h - 180;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    roundRect(ctx, bx - 10, by - 22, bw + 20, 40, 8); ctx.fill();
+    ctx.fillStyle = '#ffd94a';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('CARJACKING… hold on!', w / 2, by - 6);
+    drawBar(ctx, bx, by, bw, 10, frac, '#ffd94a');
+  }
+  // Rain streaks in the weather band: diagonal lines drifting with time.
+  if (weatherAt(game.clock ?? 0).rain) {
+    ctx.strokeStyle = 'rgba(200,220,255,0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 48; i++) {
+      const rx = ((i * 173 + game.time * 420) % (w + 40)) - 20;
+      const ry = ((i * 97 + game.time * 700) % (h + 40)) - 20;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx - 8, ry + 22);
+      ctx.stroke();
+    }
+  }
+  // Turf war banner: red, under the mission card, while an attack is live.
+  const turfText = turfWarObjectiveText(game);
+  if (turfText) {
+    ctx.font = 'bold 14px sans-serif';
+    const tw = ctx.measureText(turfText).width + 28;
+    ctx.fillStyle = 'rgba(120,0,0,0.75)';
+    roundRect(ctx, 12, 218, tw, 30, 8); ctx.fill();
+    ctx.strokeStyle = '#ff2a2a';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, 12, 218, tw, 30, 8); ctx.stroke();
+    ctx.fillStyle = '#ffb0b0';
+    ctx.textAlign = 'left';
+    ctx.fillText(turfText, 26, 238);
+  }
+  // Hidden-package count, bottom-centre above the dialogue card.
+  if (game.collectibles) {
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = 'rgba(255,217,74,0.9)';
+    ctx.textAlign = 'center';
+    ctx.fillText(packagesText(game), w / 2, h - 112);
+  }
   // Damage flash.
   if (p.hurtTimer > 0) {
     ctx.fillStyle = `rgba(255,0,0,${clamp(p.hurtTimer, 0, 0.15)})`;
@@ -1254,6 +1484,15 @@ function drawMinimap(ctx, game, view) {
   dot(LANDMARKS.garage.x, LANDMARKS.garage.y, '#e8c832', 4);
   dot(LANDMARKS.chopshop.x, LANDMARKS.chopshop.y, '#b86ad8', 4);
   if (game.impound) dot(LANDMARKS.impound.x, LANDMARKS.impound.y, '#ff9a3c', 4);
+  // Shops (gold $) and safehouses (green house): the new economy on the map.
+  for (const m of shopMarkers()) {
+    dot(m.x, m.y, m.kind === 'safehouse' ? '#3ab86a' : '#ffd94a', 3);
+  }
+  // Nearest unfound hidden package (gold) and the turf-war district (red).
+  const np = nearestPackage(game);
+  if (np) dot(np.x, np.y, '#ffd94a', 4);
+  const turfMark = turfWarTarget(game);
+  if (turfMark) dot(turfMark.x, turfMark.y, '#ff2a2a', 5);
   // Mission marker.
   if (game.missions.target && game.missions.stage === 'active') dot(game.missions.target.x, game.missions.target.y, '#ff4ad8', 5);
   // Street-circuit start pads (gold) and the active race's next gate.
@@ -1350,8 +1589,15 @@ export function drawPause(ctx, game, view) {
   ctx.font = '16px sans-serif';
   const p = game.player;
   const noto = notorietyLevel(game.wanted || { notoriety: 0 });
+  const rTier = tierFor(game.respect ? game.respect.points : (p.stats.rep || 0));
+  const owned = game.respect ? Object.keys(game.respect.control || {}).filter((d) => game.respect.control[d] >= 100).length : 0;
+  const series = game.races ? seriesPoints(game.races) : { total: 0 };
+  const turfRec = game.turfWar ? `${game.turfWar.warsWon}W/${game.turfWar.warsLost}L` : '0W/0L';
+  const pkgs = game.collectibles ? `${packagesFound(game)}/20` : '0/20';
   ctx.fillText(`Money ${fmtMoney(p.money)}  •  Missions ${p.stats.missionsDone}/${MISSION_DEFS.length}  •  Fares ${p.stats.faresDone}  •  Couriers ${p.stats.couriersDone}  •  Rampages ${p.stats.rampagesDone}  •  Vigilante ${p.stats.vigilanteDone || 0}  •  Chop sales ${p.stats.chopSales || 0}  •  Time ${fmtTime(p.stats.playTime)}`, w / 2, h / 2 - 20);
-  ctx.fillText(`Notoriety: ${noto.name} (${Math.round(noto.value)}/100)  •  P resume  •  R restart  •  M mute  •  Click to resume`, w / 2, h / 2 + 16);
+  ctx.fillText(`Respect: ${rTier.name} (${game.respect ? game.respect.points : 0} REP)  •  Districts owned ${owned}/16  •  Race series ${series.total} pts (${seriesRank(game.races || { wins: {}, racesDone: 0, racesWon: 0 })})`, w / 2, h / 2 + 8);
+  ctx.fillText(`Turf wars ${turfRec}  •  Hidden packages ${pkgs}  •  Notoriety: ${noto.name} (${Math.round(noto.value)}/100)  •  P resume  •  R restart  •  M mute  •  Click to resume`, w / 2, h / 2 + 36);
+  ctx.fillText(achievementsText(game), w / 2, h / 2 + 64);
   ctx.restore();
 }
 

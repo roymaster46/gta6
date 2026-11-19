@@ -7,11 +7,15 @@ import { clamp, dist, angleTo, rand, pick } from './utils.js';
 import { WORLD, pointInBuilding, randomFreePoint } from './city.js';
 import { maxHealthOf } from './garage.js';
 
+// New in this revision: the weapon wheel's two extra guns. The molotov
+// burns (extra damage over the hit), the revolver hits like a truck.
 export const WEAPONS = {
   pistol: { name: 'Pistol', damage: 34, rate: 0.28, speed: 620, spread: 0.05, range: 520, mag: 12, auto: false, color: '#ffd94a' },
   smg: { name: 'SMG', damage: 18, rate: 0.09, speed: 700, spread: 0.11, range: 460, mag: 30, auto: true, color: '#ffb84a' },
   shotgun: { name: 'Shotgun', damage: 16, rate: 0.7, speed: 560, spread: 0.22, range: 300, mag: 6, auto: false, pellets: 5, color: '#ff8a4a' },
   rifle: { name: 'Rifle', damage: 55, rate: 0.9, speed: 900, spread: 0.02, range: 700, mag: 5, auto: false, color: '#7ad8ff' },
+  molotov: { name: 'Molotov', damage: 40, rate: 0.8, speed: 420, spread: 0.04, range: 320, mag: 1, auto: false, color: '#ff7a2a', burn: 6 },
+  revolver: { name: 'Revolver', damage: 80, rate: 0.6, speed: 780, spread: 0.01, range: 600, mag: 6, auto: false, color: '#e8e8e8' },
 };
 
 export function makeBullet(x, y, angle, weapon, owner) {
@@ -23,6 +27,7 @@ export function makeBullet(x, y, angle, weapon, owner) {
     travelled: 0,
     owner, // 'player' | 'enemy' | 'cop'
     color: weapon.color,
+    burn: weapon.burn || 0, // molotov: extra damage that keeps burning
     dead: false,
   };
 }
@@ -66,6 +71,12 @@ export function updateBullets(game, dt) {
       if (dist(b.x, b.y, car.x, car.y) < 24) {
         b.dead = true;
         car.damage += b.damage * 0.15;
+        // A molotov keeps burning after the hit: extra damage, and a
+        // fireball event the renderer turns into flame particles.
+        if (b.burn) {
+          car.damage += b.burn;
+          hits.push({ type: 'explosion', x: b.x, y: b.y });
+        }
         car.health = Math.max(0, maxHealthOf(car) - car.damage);
         hits.push({ type: 'car', x: b.x, y: b.y, car });
         break;
