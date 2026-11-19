@@ -3,20 +3,103 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ember Harbor — Open-World Crime</title>
-<link rel="stylesheet" href="./style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23ffd94a'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
+<title>SOLARA BAY — Open-World Crime Game</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1026; font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .panel { position: fixed; background: rgba(8, 14, 24, 0.82); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(4px); }
+  #hud-top { top: 12px; left: 12px; min-width: 260px; }
+  #hud-top h1 { margin: 0 0 2px; font-size: 20px; letter-spacing: 2px; color: #ffd94a; }
+  #hud-top .sub { font-size: 12px; color: #9fc3e0; }
+  #cash { font-size: 22px; font-weight: 700; color: #2eff8a; }
+  #wanted { font-size: 20px; letter-spacing: 3px; }
+  .bar { height: 10px; background: #222; border-radius: 5px; overflow: hidden; margin: 3px 0; }
+  .bar > div { height: 100%; }
+  #health { background: #2eff8a; width: 100%; }
+  #armor { background: #3f8cff; width: 0%; }
+  #hud-right { top: 12px; right: 12px; text-align: right; font-size: 13px; }
+  #clock { font-size: 15px; font-weight: 600; }
+  #weather { color: #ffb347; }
+  #objective { max-width: 320px; font-size: 13px; color: #ffe9a8; margin-top: 6px; }
+  #minimap { position: fixed; right: 12px; bottom: 12px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; background: #0a1018; }
+  #carcard { display: none; position: fixed; left: 12px; bottom: 12px; min-width: 220px; }
+  #hint { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #cfe3f5; background: rgba(8,14,24,0.7); padding: 6px 12px; border-radius: 8px; }
+  #flash { position: fixed; top: 22%; left: 50%; transform: translateX(-50%); font-size: 19px; font-weight: 700; color: #ffd94a; text-shadow: 0 2px 8px #000; opacity: 0; transition: opacity 0.3s; text-align: center; max-width: 70%; }
+  #district { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #eaf4ff; background: rgba(8,14,24,0.65); padding: 6px 14px; border-radius: 8px; }
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4, 8, 16, 0.78); z-index: 10; }
+  .overlay.show { display: flex; }
+  .card { background: #0e1626; border: 1px solid #2a3a55; border-radius: 14px; padding: 26px 30px; max-width: 620px; max-height: 84vh; overflow: auto; }
+  .card h2 { margin: 0 0 8px; color: #ffd94a; letter-spacing: 2px; }
+  .card p { font-size: 14px; line-height: 1.55; color: #d5e5f5; }
+  .btn { display: inline-block; background: #ffd94a; color: #111; border: 0; border-radius: 8px; padding: 10px 20px; font-size: 15px; font-weight: 700; cursor: pointer; margin: 6px 6px 0 0; }
+  .btn.ghost { background: #22314a; color: #fff; }
+  .shop-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 10px; border-bottom: 1px solid #22314a; cursor: pointer; font-size: 14px; }
+  .shop-row:hover { background: #1a2740; }
+  .shop-row.done { opacity: 0.55; }
+  .shop-row.active { background: #2a3a10; }
+  .close-btn { float: right; background: #22314a; color: #fff; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  kbd { background: #22314a; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  #win { text-align: center; }
+  #win h2 { font-size: 34px; }
+</style>
 </head>
 <body>
-<canvas id="gl" aria-label="Ember Harbor: a 3D open-world crime game. Drive, steal cars, sail boats, fly the helicopter, dodge the police and run twenty-two missions across Rust Harbor."></canvas>
-<canvas id="hud" aria-hidden="true"></canvas>
-<div id="vignette" aria-hidden="true"></div>
+<canvas id="game" aria-label="Solara Bay: a 3D open-world crime game. Drive, fight, run missions and outrun Hurricane Vera."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
-<div id="controls-hint" aria-hidden="true">WASD move · E enter car / board heli / board boat · Space climb · X descend · B gun shop · V vigilante · Q side job · T enter doorway · Ctrl sneak · R reload</div>
-<div id="r7-badge" aria-hidden="true">SEVEN-STAR HARBOR — 22 missions · 3 acts</div>
-<div id="fallback" hidden>
-  <h1>Ember Harbor</h1>
-  <p>This game needs WebGL and JavaScript. Please open it in a desktop browser with WebGL enabled.</p>
+
+<div id="hud-top" class="panel">
+  <h1>SOLARA BAY</h1>
+  <div class="sub">Hurricane Vera makes landfall in 7 days</div>
+  <div id="cash">$120</div>
+  <div>Respect <span id="respect">0</span> · <span id="rank">Nobody</span></div>
+  <div id="wanted">☆☆☆☆☆</div>
+  <div class="bar"><div id="health"></div></div>
+  <div class="bar"><div id="armor"></div></div>
+  <div style="font-size:12px">🔫 <span id="weapon">Fists</span> · 📻 <span id="radio"></span></div>
+  <div style="font-size:12px" id="progress"></div>
 </div>
+
+<div id="hud-right" class="panel">
+  <div id="clock"></div>
+  <div id="weather"></div>
+  <div id="objective"></div>
+  <button class="btn ghost" id="bribe-btn" style="margin-top:8px">💸 Bribe the PD</button>
+  <button class="btn ghost" id="save-btn">💾 Save</button>
+  <button class="btn ghost" id="mute-btn">🔊 Sound</button>
+</div>
+
+<div id="district">Solara Bay</div>
+<div id="flash"></div>
+
+<div id="carcard" class="panel">
+  <div id="carname" style="font-weight:700"></div>
+  <div class="bar"><div id="carhp" style="background:#ff9040"></div></div>
+  <div id="carspeed"></div>
+</div>
+
+<canvas id="minimap" width="150" height="150"></canvas>
+<div id="hint"></div>
+
+<div id="title-screen" class="overlay">
+  <div class="card">
+    <h2>SOLARA BAY</h2>
+    <p><b>Hurricane Vera hits in 7 days.</b> You are <b>Rin Kade</b>, a storm-courier turned wheelman for the <b>Stormbreakers</b> crew. The Tide Kings are hoarding the city's storm-relief cash — steal it back, run ten story missions, and deliver it to the shelters before landfall.</p>
+    <p>🚗 Steal cars and drive · 🔫 Fight with 5 weapons · ⭐ 5-star police with helicopters &amp; roadblocks · 🏁 Street races · 🛠️ Garage upgrades · 📻 4 radio stations · 🏠 Safehouses · 💾 Autosave</p>
+    <p><kbd>WASD</kbd> move/drive · <kbd>Shift</kbd> sprint/handbrake · <kbd>E</kbd> interact &amp; steal cars · <kbd>Click</kbd> shoot · <kbd>Q</kbd> weapon wheel · <kbd>1–5</kbd> weapons · <kbd>B</kbd> shop · <kbd>G</kbd> safehouse/garage · <kbd>M</kbd> missions · <kbd>R</kbd> radio · <kbd>N</kbd> nitro · <kbd>P</kbd> pause</p>
+    <p id="load-note" style="color:#2eff8a"></p>
+    <button class="btn" id="start-btn">▶ Start the run</button>
+    <button class="btn ghost" id="load-btn">Load save</button>
+  </div>
+</div>
+
+<div id="shop" class="overlay"><div class="card"><button class="close-btn">✕</button><h2>🔫 IRON ANNIE GUNS &amp; CREW</h2><div id="shop-list"></div></div></div>
+<div id="garage" class="overlay"><div class="card"><button class="close-btn">✕</button><h2>🛠️ OTIS GARAGE</h2><div id="garage-list"></div></div></div>
+<div id="missions" class="overlay"><div class="card"><button class="close-btn">✕</button><h2>📋 STORY MISSIONS — 7 DAYS TO LANDFALL</h2><div id="mission-list"></div></div></div>
+<div id="pause" class="overlay"><div class="card"><h2>PAUSED</h2><p>The storm waits for no one. Press P to keep running.</p><button class="btn" onclick="document.getElementById('pause').classList.remove('show')">Resume</button></div></div>
+<div id="win" class="overlay"><div class="card"><h2>🏆 BAY LEGEND</h2><p>You delivered the relief cash, outran the surge, and became a legend of Solara Bay. All 10 story missions complete — free roam continues. The storm remembers.</p><button class="btn" onclick="document.getElementById('win').classList.remove('show')">Keep playing</button></div></div>
+
 <script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 </body>

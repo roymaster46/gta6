@@ -1,28 +1,16 @@
-// Ember Harbor — make.fun gta6-01 entry point (Node 22, standard library only).
-// r7 "SEVEN-STAR HARBOR": 22 missions across a full three-act story, a
-// flyable helicopter, boats on the harbour, 5-star SWAT/FIB response with
-// roadblocks, a gun shop, safehouses, vigilante work, side jobs (taxi,
-// ambulance, street-race series, bounties), living crowds, real weather
-// that changes the driving, enterable interiors, a night market, and a
-// wanted system that grows into a seven-star legend.
-// The game is the static game/ folder beside this file: a Three.js open-world
-// crime game that runs in a desktop browser with zero network requests at
-// runtime. This script copies game/ and screenshots/ into the output dir and
-// writes /output/dossier.json, the summary the judge reads, using the kit's
-// vendored make.fun library. Run it with:
+// SOLARA BAY — a gta6-01 entry (Node 22, standard library only).
+// The game is this directory's game/ folder: plain static files a desktop browser
+// loads offline (game/index.html and its ES modules, Three.js vendored under
+// game/vendor/, no network request at runtime). This program hands it in: it copies
+// game/ and screenshots/ from beside this file to /output and writes
+// /output/dossier.json, the summary the judge reads, with the vendored make.fun
+// library (vendor/makefun-game.ts, byte for byte the scorer's own copy).
+//
+// Serve it locally with `node serve.ts`, then open http://localhost:8080.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-// (Outside the grader's container MAKEFUN_OUTPUT_DIR stands in for /output.)
-// Serve the game locally with `node serve.ts`, then open http://localhost:8080.
-// r7 systems at a glance: story.js (three-act campaign, 8 chapters),
-// weather.js (rain slick, fog sight, night patrols, storm grounding),
-// crowd.js (groups, panic, crossings), boats.js (boats + 6 new vehicle
-// models), interiors.js (6 enterable rooms + night-market stalls),
-// sidejobs.js (taxi, ambulance, race series, courier, bounties, fishing),
-// fx.js (particles, shake, slow-mo headshots), missions-r7.js (8 more
-// jobs: Ferry Gambit, Last Ferry, Harbor King, Market Courier, Ambulance
-// Hero, Street Champion, Bounty Hunter, Fishing Charter — 22 total).
 
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -30,18 +18,23 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+// Fail fast with a clear message instead of handing in a half-built entry:
+// the playable game and at least one real screenshot must exist first.
+for (const required of ['game/index.html', 'game/vendor/three.min.js', 'screenshots']) {
+  if (!existsSync(join(here, required))) {
+    throw new Error(`SOLARA BAY entry is incomplete: missing ${required}`);
+  }
+}
+
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) {
-  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
-}
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the
-// bytes; the others refuse an entry the scorer would refuse (more than 4
-// screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of
-// game files, in all, or a path under game/ over 1000 bytes: game/ counts
-// beside /output's own 1000-entry cap, its screenshots/ and dossier.json).
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes;
+// the others refuse an entry the scorer would refuse (more than 4 screenshots or one
+// over 256 KiB; more than 993 files in game/ or 48 MiB of game files, in all, or a path
+// under game/ over 1000 bytes).
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {
@@ -53,43 +46,8 @@ writeFileSync(
   }),
 );
 
-const shots = existsSync(join(here, 'screenshots'))
-  ? readdirSync(join(here, 'screenshots')).filter((f) => /\.(jpe?g|png)$/i.test(f)).sort()
+// A short build summary on stdout so a local run shows what was handed in.
+const shotNames = existsSync(join(here, 'screenshots'))
+  ? (await import('node:fs')).readdirSync(join(here, 'screenshots')).filter((f) => /\.(png|jpe?g)$/i.test(f))
   : [];
-// r6: the four staged scenes must be present and in order — 1-day is the
-// cover, then night, the Skyhook mission at the heliport, and the 5-star
-// chase. A missing scene means the Playwright capture step was skipped.
-const EXPECTED_SHOTS = ['1-day.jpg', '2-night.jpg', '3-mission.jpg', '4-chase.jpg'];
-for (const expected of EXPECTED_SHOTS) {
-  if (!shots.includes(expected)) {
-    throw new Error(`Missing screenshot ${expected} — re-capture with ?shot=<name>&seed=20261119 before submitting.`);
-  }
-}
-// The scorer refuses a screenshot over 256 KiB, so fail loudly here instead
-// of shipping an entry that cannot be graded.
-const MAX_SHOT_BYTES = 262144;
-for (const shot of shots) {
-  const size = statSync(join(here, 'screenshots', shot)).size;
-  if (size > MAX_SHOT_BYTES) {
-    throw new Error(`Screenshot ${shot} is ${size} bytes, over the ${MAX_SHOT_BYTES} byte cap — re-capture it smaller.`);
-  }
-}
-if (shots.length === 0) console.warn('Warning: no screenshots — the entry needs at least one.');
-if (shots.length > 4) throw new Error(`Too many screenshots (${shots.length}); the cap is 4.`);
-
-// Quick self-check of the dossier the judge will read: it must name the
-// game files and the screenshots, and it must parse as JSON.
-const dossierPath = join(out, 'dossier.json');
-const dossier = JSON.parse(readFileSync(dossierPath, 'utf8'));
-console.log(`Dossier: ${JSON.stringify(dossier).length} bytes, ${Object.keys(dossier).length} top-level keys.`);
-const gameFiles = [];
-(function walk(dir, rel) {
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    const r = rel ? `${rel}/${name}` : name;
-    if (statSync(full).isDirectory()) walk(full, r);
-    else gameFiles.push(r);
-  }
-})(join(here, 'game'), '');
-console.log(`Ember Harbor: ${gameFiles.length} game files, ${shots.length} screenshots -> ${out}`);
-console.log(`Screenshots: ${shots.join(', ') || '(none)'}`);
+console.log(`SOLARA BAY handed in to ${out}: game/ + ${shotNames.length} screenshot(s) (${shotNames.join(', ')}) + dossier.json`);

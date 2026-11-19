@@ -1,294 +1,289 @@
-// Ember Harbor — the city as data. Pure: given a seed it returns the same
-// layout every time, with no DOM or THREE involved, so tests can check it.
-// The city is a 10x10 grid of blocks (streets every 92 m). Each block holds
-// 1-4 buildings, a plaza, a park or a landmark. The renderer turns this data
-// into meshes; the gameplay modules only read positions and flags.
+// SOLARA BAY — procedural city. All geometry + canvas textures, zero assets.
+import { DISTRICTS, CITY_SIZE } from './logic.js';
 
-import { BLOCK, DISTRICTS, HALF, PALETTE, WORLD_SIZE } from './config.js';
-import { createRng, hash2, rngInt, rngPick, rngRange } from './utils.js';
-
-export const GRID_N = 10; // blocks per side; streets at -460..460 step 92
-
-export function streetCoord(i) {
-  return -HALF + i * BLOCK;
+function seededRand(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
 }
 
-export function blockCenter(i, j) {
-  return { x: streetCoord(i) + BLOCK / 2, z: streetCoord(j) + BLOCK / 2 };
+function makeCanvasTexture(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
-export function districtAt(x, z) {
-  const gx = x < -153 ? -3 : x < 153 ? 0 : 3;
-  const gz = z < -153 ? -3 : z < 153 ? 0 : 3;
-  const found = DISTRICTS.find((d) => d.x === gx && d.z === gz);
-  return found || DISTRICTS[4];
+export function buildingTexture(base, lit) {
+  return makeCanvasTexture(128, 256, (g, w, h) => {
+    g.fillStyle = base; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let y = 0; y < h; y += 16) g.fillRect(0, y, w, 2);
+    for (let y = 12; y < h - 8; y += 24) {
+      for (let x = 10; x < w - 10; x += 22) {
+        const on = ((x * 7 + y * 13) % 5) < (lit ? 3 : 2);
+        g.fillStyle = on ? 'rgba(255,214,130,0.95)' : 'rgba(20,26,40,0.9)';
+        g.fillRect(x, y, 12, 14);
+      }
+    }
+  });
 }
 
-export function generateCity(seed) {
-  const rng = createRng(seed);
-  const buildings = [];
-  const lamps = [];
-  const trees = [];
-  const parks = [];
-  const plazas = [];
-  const landmarks = [];
-  const billboards = [];
-  const packages = [];
-  const carSpawns = [];
-  const taxiStands = [];
-  const garages = [];
+export function roadTexture() {
+  return makeCanvasTexture(128, 128, (g, w, h) => {
+    g.fillStyle = '#23262e'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#f5c542';
+    g.fillRect(w / 2 - 2, 0, 4, 40); g.fillRect(w / 2 - 2, 64, 4, 40);
+    g.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let i = 0; i < 40; i++) g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  });
+}
 
-  // Landmarks are fixed by design so missions can point at them by name.
-  const landmarkDefs = [
-    { id: 'pier', name: 'South Pier', x: 0, z: 414, kind: 'pier' },
-    { id: 'bank', name: 'Harbor Trust Bank', x: 46, z: -46, kind: 'bank' },
-    { id: 'hospital', name: 'St. Anselm Hospital', x: -322, z: 138, kind: 'hospital' },
-    { id: 'safehouse', name: "Vex's Safehouse", x: 322, z: 322, kind: 'safehouse' },
-    { id: 'chopshop', name: 'Rusty Wrench Chop Shop', x: -368, z: 322, kind: 'chopshop' },
-    { id: 'spray', name: 'Quick Coat Spray Shop', x: 138, z: -322, kind: 'spray' },
-    { id: 'market', name: 'Old Market Hall', x: -46, z: -322, kind: 'market' },
-    { id: 'tower', name: 'Harborview Tower', x: 322, z: -46, kind: 'tower' },
-    { id: 'stadium', name: 'Foundry Bowl', x: -322, z: -322, kind: 'stadium' },
-    { id: 'ferry', name: 'Ferry Terminal', x: 414, z: 230, kind: 'ferry' },
-    // r6: new landmarks the new systems live at — gun shop, casino,
-    // heliport and a second safehouse up in Northgate.
-    { id: 'gunshop', name: 'Iron Annie Guns', x: -138, z: 138, kind: 'gunshop' },
-    { id: 'casino', name: 'Harbour Casino', x: 230, z: -138, kind: 'casino' },
-    { id: 'heliport', name: 'Harbor Heliport', x: 414, z: -138, kind: 'heliport' },
-    { id: 'safehouse2', name: 'Northgate Safehouse', x: -322, z: -138, kind: 'safehouse' },
-  ];
-  for (const def of landmarkDefs) {
-    landmarks.push({ ...def, w: def.kind === 'stadium' ? 70 : 44, d: def.kind === 'stadium' ? 70 : 36, h: def.kind === 'tower' ? 96 : def.kind === 'bank' ? 34 : 18 });
+const PALETTES = {
+  marina: ['#7fb3d5', '#a8c8e0', '#5d8aa8'],
+  oldtown: ['#b08954', '#8a6a42', '#c9a06a'],
+  bayfront: ['#4a6fa5', '#6a8caf', '#3a5a80'],
+  boardwalk: ['#e07a5f', '#f2a65a', '#81b29a'],
+  downtown: ['#5a6b7d', '#7d8fa3', '#46586a'],
+  harbor: ['#7a7a72', '#9a9a8a', '#5f6a5a'],
+  crosstown: ['#8a7a5a', '#6a5a42', '#a08a68'],
+  palms: ['#d9c7a7', '#bfae8a', '#e8dcc0'],
+  stormpoint: ['#6b7a8a', '#54636f', '#8794a3'],
+  southbeach: ['#e8d8a8', '#d9c48a', '#f0e0b8'],
+};
+
+export class City {
+  constructor(scene) {
+    this.scene = scene;
+    this.buildings = []; // {x,z,w,d,h,mesh}
+    this.colliders = []; // {minX,maxX,minZ,maxZ}
+    this.trafficNodes = [];
+    this.pedNodes = [];
+    this.build();
   }
 
-  for (let i = 0; i < GRID_N; i += 1) {
-    for (let j = 0; j < GRID_N; j += 1) {
-      const c = blockCenter(i, j);
-      const h = hash2(i, j, seed);
-      const nearLandmark = landmarks.some((lm) => Math.abs(lm.x - c.x) < 60 && Math.abs(lm.z - c.z) < 60);
-      if (nearLandmark) continue;
-      if (h < 0.1) {
-        parks.push({ x: c.x, z: c.z, size: 62, trees: rngInt(rng, 6, 11) });
-        for (let t = 0; t < 8; t += 1) {
-          trees.push({ x: c.x + rngRange(rng, -26, 26), z: c.z + rngRange(rng, -26, 26), s: rngRange(rng, 0.8, 1.5) });
+  addCollider(x, z, w, d) {
+    this.colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  }
+
+  build() {
+    const rand = seededRand(20261119);
+    const S = CITY_SIZE;
+    // Ground: sand base + city slab + beach + water
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(S + 600, S + 600),
+      new THREE.MeshLambertMaterial({ color: 0x9c8a68 }),
+    );
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.1;
+    this.scene.add(ground);
+    const slab = new THREE.Mesh(
+      new THREE.PlaneGeometry(S, S),
+      new THREE.MeshLambertMaterial({ color: 0x5a6068 }),
+    );
+    slab.rotation.x = -Math.PI / 2; slab.position.y = 0;
+    this.scene.add(slab);
+    // Ocean to the south + east
+    const water = new THREE.Mesh(
+      new THREE.PlaneGeometry(1400, 500),
+      new THREE.MeshPhongMaterial({ color: 0x14586e, shininess: 120, transparent: true, opacity: 0.92 }),
+    );
+    water.rotation.x = -Math.PI / 2; water.position.set(0, 0.4, S / 2 + 250);
+    this.scene.add(water);
+    const beach = new THREE.Mesh(
+      new THREE.PlaneGeometry(S + 200, 60),
+      new THREE.MeshLambertMaterial({ color: 0xe0cf9a }),
+    );
+    beach.rotation.x = -Math.PI / 2; beach.position.set(0, 0.15, S / 2 + 10);
+    this.scene.add(beach);
+
+    // Roads: grid every 110 m, 12 m wide
+    const roadTex = roadTexture();
+    roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping;
+    for (let x = -S / 2 + 55; x <= S / 2; x += 110) {
+      const r = new THREE.Mesh(new THREE.PlaneGeometry(12, S), new THREE.MeshLambertMaterial({ map: roadTex }));
+      r.rotation.x = -Math.PI / 2; r.position.set(x, 0.05, 0); r.receiveShadow = true;
+      this.scene.add(r);
+      this.trafficNodes.push({ x, z: 0, vertical: true });
+    }
+    for (let z = -S / 2 + 55; z <= S / 2 - 55; z += 110) {
+      const r = new THREE.Mesh(new THREE.PlaneGeometry(S, 12), new THREE.MeshLambertMaterial({ map: roadTex }));
+      r.rotation.x = -Math.PI / 2; r.position.set(0, 0.05, z);
+      this.scene.add(r);
+      this.trafficNodes.push({ x: 0, z, vertical: false });
+    }
+
+    // Buildings per block (skip road cells)
+    const texCache = {};
+    for (const d of DISTRICTS) {
+      const pal = PALETTES[d.id] || ['#777'];
+      for (let bx = d.x + 25; bx < d.x + d.w - 20; bx += 55) {
+        for (let bz = d.z + 25; bz < d.z + d.h - 20; bz += 55) {
+          if (Math.abs((bx % 110)) < 14 || Math.abs((bz % 110)) < 14) continue;
+          if (rand() < 0.18) { // plaza / park gap
+            if (rand() < 0.5) this.addTree(bx, bz, rand);
+            continue;
+          }
+          const w = 22 + rand() * 18, dep = 22 + rand() * 18;
+          const tall = d.id === 'downtown' || d.id === 'bayfront';
+          const h = tall ? 40 + rand() * 90 : 10 + rand() * 26;
+          const color = pal[Math.floor(rand() * pal.length)];
+          if (!texCache[color]) texCache[color] = buildingTexture(color, true);
+          const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(w, h, dep),
+            new THREE.MeshLambertMaterial({ map: texCache[color] }),
+          );
+          mesh.position.set(bx, h / 2, bz);
+          this.scene.add(mesh);
+          this.buildings.push({ x: bx, z: bz, w, d: dep, h, mesh });
+          this.addCollider(bx, bz, w, dep);
+          if (rand() < 0.3) { // rooftop neon sign
+            const sign = new THREE.Mesh(
+              new THREE.BoxGeometry(w * 0.6, 2, 1),
+              new THREE.MeshBasicMaterial({ color: [0xff2e63, 0x08d9d6, 0xf9ed69, 0xff9f1c][Math.floor(rand() * 4)] }),
+            );
+            sign.position.set(bx, h + 1.5, bz + dep / 2 + 0.6);
+            this.scene.add(sign);
+          }
         }
-        continue;
       }
-      if (h < 0.18) {
-        plazas.push({ x: c.x, z: c.z, size: 58 });
-        continue;
+    }
+
+    // Landmarks: lighthouse (Storm Point), ferris wheel (Boardwalk), bank (Harbor), safehouse (Palm Court)
+    this.addLighthouse(300, 220);
+    this.addFerrisWheel(-300, -40);
+    this.addLandmarkBank(260, -60);
+    this.addSafehouse(-40, 220);
+    this.addSafehouse(-260, -300); // second safehouse, Old Town
+    this.addGarage(-300, 220);
+    this.addGunshop(-40, -40);
+    // Street lamps
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+    for (let x = -S / 2 + 55; x <= S / 2; x += 110) {
+      for (let z = -S / 2 + 55; z <= S / 2 - 55; z += 110) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 7), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+        pole.position.set(x + 8, 3.5, z + 8);
+        this.scene.add(pole);
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.5), lampMat);
+        bulb.position.set(x + 8, 7.2, z + 8);
+        bulb.name = 'lamp';
+        this.scene.add(bulb);
       }
-      const nBuild = h < 0.55 ? 1 : h < 0.85 ? 2 : 4;
-      for (let b = 0; b < nBuild; b += 1) {
-        const ox = nBuild === 1 ? 0 : (b % 2 === 0 ? -20 : 20);
-        const oz = nBuild === 1 ? 0 : (b < 2 ? -20 : 20);
-        const tall = hash2(i * 7 + b, j * 3 + 1, seed);
-        const height = tall > 0.82 ? rngRange(rng, 48, 88) : tall > 0.55 ? rngRange(rng, 22, 44) : rngRange(rng, 9, 20);
-        buildings.push({
-          x: c.x + ox, z: c.z + oz,
-          w: nBuild === 1 ? 52 : 34, d: nBuild === 1 ? 52 : 34,
-          h: Math.round(height),
-          color: rngPick(rng, PALETTE.building),
-          litRatio: rngRange(rng, 0.25, 0.75),
-          roof: rngPick(rng, ['flat', 'flat', 'flat', 'spire', 'tank']),
-        });
-      }
-      if (hash2(i, j, seed + 5) < 0.5) {
-        carSpawns.push({ x: c.x + rngRange(rng, -30, 30), z: streetCoord(j) + 10, angle: 0 });
-      }
+    }
+    // Storm clouds (dark billboards high up)
+    this.clouds = [];
+    const cloudMat = new THREE.MeshLambertMaterial({ color: 0x2c3440, transparent: true, opacity: 0.85 });
+    for (let i = 0; i < 14; i++) {
+      const c = new THREE.Mesh(new THREE.SphereGeometry(30 + rand() * 40, 8, 6), cloudMat);
+      c.scale.y = 0.35;
+      c.position.set((rand() - 0.5) * 1200, 130 + rand() * 40, (rand() - 0.5) * 1200 - 200);
+      this.scene.add(c);
+      this.clouds.push(c);
     }
   }
 
-  // Street lamps along every street, both sides, every other block.
-  for (let i = 0; i <= GRID_N; i += 1) {
-    for (let j = 0; j < GRID_N; j += 1) {
-      if ((i + j) % 2 === 0) continue;
-      lamps.push({ x: streetCoord(i) + 10, z: streetCoord(j) + BLOCK / 2 });
-      lamps.push({ x: streetCoord(i) - 10, z: streetCoord(j) + BLOCK / 2 });
+  addTree(x, z, rand) {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 4), new THREE.MeshLambertMaterial({ color: 0x5a4028 }));
+    trunk.position.set(x, 2, z);
+    this.scene.add(trunk);
+    const top = new THREE.Mesh(new THREE.SphereGeometry(3 + (rand ? rand() * 1.5 : 0)), new THREE.MeshLambertMaterial({ color: 0x2e7d32 }));
+    top.position.set(x, 6, z);
+    this.scene.add(top);
+  }
+
+  addLighthouse(x, z) {
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(4, 6, 46), new THREE.MeshLambertMaterial({ color: 0xf0ead8 }));
+    tower.position.set(x, 23, z);
+    this.scene.add(tower);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(4.4, 4.4, 4), new THREE.MeshBasicMaterial({ color: 0xc23b4e }));
+    band.position.set(x, 34, z);
+    this.scene.add(band);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(2.5), new THREE.MeshBasicMaterial({ color: 0xfff2a8 }));
+    lamp.position.set(x, 47, z);
+    lamp.name = 'lighthouse-lamp';
+    this.scene.add(lamp);
+    this.addCollider(x, z, 12, 12);
+  }
+
+  addFerrisWheel(x, z) {
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(22, 1.2, 8, 24), new THREE.MeshLambertMaterial({ color: 0xff2e63 }));
+    wheel.position.set(x, 26, z);
+    this.scene.add(wheel);
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(2), new THREE.MeshBasicMaterial({ color: 0x08d9d6 }));
+    hub.position.set(x, 26, z);
+    this.scene.add(hub);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3), new THREE.MeshLambertMaterial({ color: [0xf9ed69, 0x08d9d6, 0xff9f1c][i % 3] }));
+      cab.position.set(x + Math.cos(a) * 22, 26 + Math.sin(a) * 22, z);
+      this.scene.add(cab);
+    }
+    this.wheel = wheel;
+    this.addCollider(x, z, 10, 10);
+  }
+
+  addLandmarkBank(x, z) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(50, 22, 36), new THREE.MeshLambertMaterial({ color: 0xd9d3c3 }));
+    b.position.set(x, 11, z);
+    this.scene.add(b);
+    const roof = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 6, 3), new THREE.MeshLambertMaterial({ color: 0x8a7a5a }));
+    roof.position.set(x, 25, z); roof.rotation.y = Math.PI / 4;
+    this.scene.add(roof);
+    this.addCollider(x, z, 50, 36);
+  }
+
+  addSafehouse(x, z) {
+    const h = new THREE.Mesh(new THREE.BoxGeometry(20, 9, 16), new THREE.MeshLambertMaterial({ color: 0x4a90d9 }));
+    h.position.set(x, 4.5, z);
+    this.scene.add(h);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(13, 5, 4), new THREE.MeshLambertMaterial({ color: 0xc23b4e }));
+    roof.position.set(x, 11.5, z); roof.rotation.y = Math.PI / 4;
+    this.scene.add(roof);
+    this.addCollider(x, z, 20, 16);
+  }
+
+  addGarage(x, z) {
+    const g = new THREE.Mesh(new THREE.BoxGeometry(30, 10, 22), new THREE.MeshLambertMaterial({ color: 0x2e8b6a }));
+    g.position.set(x, 5, z);
+    this.scene.add(g);
+    this.addCollider(x, z, 30, 22);
+  }
+
+  addGunshop(x, z) {
+    const g = new THREE.Mesh(new THREE.BoxGeometry(18, 8, 14), new THREE.MeshLambertMaterial({ color: 0x8a5a2e }));
+    g.position.set(x, 4, z);
+    this.scene.add(g);
+    this.addCollider(x, z, 18, 14);
+  }
+
+  // Circle vs AABB collision; returns corrected position.
+  collide(x, z, radius) {
+    for (const c of this.colliders) {
+      if (x + radius > c.minX && x - radius < c.maxX && z + radius > c.minZ && z - radius < c.maxZ) {
+        const dxl = x + radius - c.minX, dxr = c.maxX - (x - radius);
+        const dzl = z + radius - c.minZ, dzr = c.maxZ - (z - radius);
+        const m = Math.min(dxl, dxr, dzl, dzr);
+        if (m === dxl) x = c.minX - radius;
+        else if (m === dxr) x = c.maxX + radius;
+        else if (m === dzl) z = c.minZ - radius;
+        else z = c.maxZ + radius;
+      }
+    }
+    const half = CITY_SIZE / 2;
+    x = Math.max(-half, Math.min(half, x));
+    z = Math.max(-half, Math.min(half + 40, z));
+    return { x, z };
+  }
+
+  update(dt, storm01) {
+    if (this.wheel) this.wheel.rotation.z += dt * 0.15;
+    for (const c of this.clouds) {
+      c.position.x += dt * (4 + storm01 * 22);
+      if (c.position.x > 700) c.position.x = -700;
+      c.material.opacity = 0.5 + storm01 * 0.45;
     }
   }
-
-  // Billboards on the main avenues.
-  const bbTexts = ['EMBER COLA', 'HARBOUR CASINO', 'RUSTY WRENCH', 'NIGHT FERRY', 'VOLT ENERGY', 'PIER 9'];
-  for (let k = 0; k < 12; k += 1) {
-    billboards.push({
-      x: streetCoord(rngInt(rng, 1, 9)) + (rng() < 0.5 ? 12 : -12),
-      z: streetCoord(rngInt(rng, 1, 9)),
-      angle: rng() < 0.5 ? 0 : Math.PI / 2,
-      text: bbTexts[k % bbTexts.length],
-      color: PALETTE.neon[k % PALETTE.neon.length],
-    });
-  }
-
-  // 16 hidden packages tucked in alleys, parks and behind landmarks.
-  // r6 adds four more in the new corners of town (casino, heliport,
-  // gunshop alley, Northgate) so the hunt keeps paying after the first 12.
-  const pkgSpots = [
-    { x: -414, z: -414 }, { x: 414, z: -368 }, { x: -368, z: 46 }, { x: 230, z: 414 },
-    { x: -230, z: -414 }, { x: 46, z: 230 }, { x: -138, z: 138 }, { x: 368, z: 138 },
-    { x: 138, z: -138 }, { x: -414, z: 230 }, { x: 322, z: -230 }, { x: -46, z: 414 },
-    { x: 230, z: -92 }, { x: 368, z: -138 }, { x: -92, z: 138 }, { x: -322, z: -92 },
-  ];
-  pkgSpots.forEach((p, idx) => packages.push({ id: idx, x: p.x, z: p.z, taken: false }));
-
-  taxiStands.push({ x: 46, z: 46 }, { x: -46, z: 322 }, { x: 322, z: -322 }, { x: -322, z: -46 });
-  garages.push({ x: 138, z: -322, name: 'Quick Coat' }, { x: -368, z: 322, name: 'Rusty Wrench' });
-
-  // r6: heli pads (heliport + two rooftops) and the avenues roadblocks
-  // seal at 4+ stars. Pads are flat clearings, not buildings, so the
-  // renderer draws an H circle and the heli can land on them.
-  const heliPads = [
-    { id: 'heliport', name: 'Harbor Heliport', x: 368, z: -138, radius: 10 },
-    { id: 'tower-roof', name: 'Harborview Tower Roof', x: 322, z: -46, radius: 9 },
-    { id: 'hospital-roof', name: 'St. Anselm Roof', x: -322, z: 138, radius: 9 },
-  ];
-  // Street corners where ambient events like to start.
-  const eventSpots = [
-    { x: 0, z: 0 }, { x: -184, z: 92 }, { x: 184, z: -92 },
-    { x: -92, z: -184 }, { x: 92, z: 184 }, { x: -276, z: 276 },
-  ];
-
-  // The harbour water strip hugs the east edge; the pier reaches into it.
-  // r7: the city also carries its new districts as data — night-market
-  // stalls, dock cranes and containers, foundry furnaces, and the six
-  // enterable interiors (doors are real positions the player can use).
-  const r7 = {
-    marketStalls: [
-      { id: 'noodles', x: -62, z: -230 }, { id: 'lanterns', x: -46, z: -246 },
-      { id: 'fish', x: -30, z: -230 }, { id: 'tea', x: -46, z: -214 },
-      { id: 'trinkets', x: -62, z: -214 }, { id: 'records', x: -30, z: -246 },
-    ],
-    docks: [
-      { id: 'crane-1', x: 400, z: 92, h: 42 }, { id: 'crane-2', x: 400, z: 184, h: 38 },
-      { id: 'container-a', x: 368, z: 92 }, { id: 'container-b', x: 368, z: 108 },
-      { id: 'container-c', x: 368, z: 124 }, { id: 'container-d', x: 414, z: 92 },
-    ],
-    foundry: [
-      { id: 'furnace-1', x: -368, z: -368, h: 26 }, { id: 'furnace-2', x: -322, z: -368, h: 22 },
-      { id: 'chimney', x: -414, z: -368, h: 48 }, { id: 'silo', x: -368, z: -322, h: 30 },
-    ],
-    interiors: [
-      { id: 'gunshop-back', x: -138, z: 138, doorX: -138, doorZ: 122 },
-      { id: 'casino-floor', x: 230, z: -138, doorX: 230, doorZ: -122 },
-      { id: 'hospital-ward', x: -322, z: 138, doorX: -322, doorZ: 122 },
-      { id: 'tea-house', x: -46, z: -230, doorX: -46, doorZ: -214 },
-      { id: 'ferry-office', x: 414, z: 230, doorX: 414, doorZ: 214 },
-      { id: 'warehouse-9', x: -368, z: -368, doorX: -368, doorZ: -352 },
-    ],
-    boatDocks: [
-      { id: 'pier-south', x: 470, z: 414 }, { id: 'ferry', x: 480, z: 230 }, { id: 'harbor-north', x: 470, z: -322 },
-    ],
-  };
-  return {
-    seed, buildings, lamps, trees, parks, plazas, landmarks, billboards,
-    packages, carSpawns, taxiStands, garages, heliPads, eventSpots, r7,
-    water: { x: HALF + 55, z: 0, w: 130, d: WORLD_SIZE + 260 },
-    bounds: HALF,
-  };
-}
-
-export function buildingAt(city, x, z) {
-  for (const b of city.buildings) {
-    if (Math.abs(x - b.x) < b.w / 2 + 0.4 && Math.abs(z - b.z) < b.d / 2 + 0.4) return b;
-  }
-  for (const lm of city.landmarks) {
-    if (Math.abs(x - lm.x) < lm.w / 2 + 0.4 && Math.abs(z - lm.z) < lm.d / 2 + 0.4) return lm;
-  }
-  return null;
-}
-
-export function collidesWithBuilding(city, x, z, radius) {
-  const b = buildingAt(city, x, z);
-  if (!b) return false;
-  const dx = Math.abs(x - b.x) - b.w / 2;
-  const dz = Math.abs(z - b.z) - b.d / 2;
-  return dx < radius && dz < radius;
-}
-
-export function resolveBuildingCollision(city, x, z, radius) {
-  const b = buildingAt(city, x, z);
-  if (!b) return { x, z, hit: false };
-  const dx = x - b.x;
-  const dz = z - b.z;
-  const px = b.w / 2 + radius - Math.abs(dx);
-  const pz = b.d / 2 + radius - Math.abs(dz);
-  if (px < pz) return { x: b.x + Math.sign(dx || 1) * (b.w / 2 + radius), z, hit: true };
-  return { x, z: b.z + Math.sign(dz || 1) * (b.d / 2 + radius), hit: true };
-}
-
-export function landmarkById(city, id) {
-  return city.landmarks.find((l) => l.id === id) || null;
-}
-
-export function heliPadById(city, id) {
-  return (city.heliPads || []).find((p) => p.id === id) || null;
-}
-
-export function nearestHeliPad(city, x, z, maxDist) {
-  let best = null;
-  let bestD = maxDist || Infinity;
-  for (const p of city.heliPads || []) {
-    const d = Math.hypot(x - p.x, z - p.z);
-    if (d < bestD) { bestD = d; best = p; }
-  }
-  return best ? { pad: best, dist: bestD } : null;
-}
-
-export function safehouses(city) {
-  return city.landmarks.filter((l) => l.kind === 'safehouse');
-}
-
-export function landmarkKinds(city) {
-  const kinds = {};
-  for (const lm of city.landmarks) kinds[lm.kind] = (kinds[lm.kind] || 0) + 1;
-  return kinds;
-}
-
-export function randomStreetPoint(rng, margin) {
-  const m = margin || 40;
-  const i = rngInt(rng, 1, 9);
-  const j = rngInt(rng, 1, 9);
-  const along = rngRange(rng, -m, m);
-  if (rng() < 0.5) return { x: streetCoord(i), z: streetCoord(j) + along };
-  return { x: streetCoord(i) + along, z: streetCoord(j) };
-}
-
-// r7: the new districts, interiors and water are data on the city — the
-// renderer draws them, the gameplay modules read them, tests count them.
-export function r7Extras(city) {
-  return city.r7 || { marketStalls: [], docks: [], foundry: [], interiors: [], boatDocks: [] };
-}
-
-export function inWater(x, z) {
-  return x > 460;
-}
-
-export function nearestInteriorDoor(city, x, z, maxDist) {
-  let best = null;
-  let bestD = maxDist || 6;
-  for (const it of (city.r7?.interiors || [])) {
-    const d = Math.hypot(x - it.doorX, z - it.doorZ);
-    if (d < bestD) { bestD = d; best = it; }
-  }
-  return best;
-}
-
-export function nearestBoatDock(city, x, z) {
-  let best = null;
-  let bestD = Infinity;
-  for (const d of (city.r7?.boatDocks || [])) {
-    const dd = Math.hypot(x - d.x, z - d.z);
-    if (dd < bestD) { bestD = dd; best = d; }
-  }
-  return best ? { dock: best, dist: bestD } : null;
-}
-
-export function marketStallAt(city, x, z, maxDist) {
-  let best = null;
-  let bestD = maxDist || 5;
-  for (const s of (city.r7?.marketStalls || [])) {
-    const d = Math.hypot(x - s.x, z - s.z);
-    if (d < bestD) { bestD = d; best = s; }
-  }
-  return best;
 }

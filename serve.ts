@@ -1,11 +1,6 @@
-// Ember Harbor — tiny static server for local play (Node 22, stdlib only).
-// Serves game/ on http://localhost:8080 by default:
-//   node serve.ts            (port 8080)
-//   node serve.ts --port 9000
-// It only serves files inside game/, sends the MIME types a browser game
-// needs, and never touches the network otherwise. Development convenience,
-// not a production server.
-
+// A tiny static server for game/ (Node 22, standard library only), so SOLARA BAY
+// can be played locally without a build step: `node serve.ts` serves game/ on
+// http://localhost:8080. Standard-library only; refuses paths outside game/.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -30,24 +25,13 @@ const MIME = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.txt': 'text/plain; charset=utf-8',
 };
 
-// r6: `?shot=day|night|mission|chase` stages a deterministic screenshot
-// scene instead of the title screen; the server needs no special case
-// for it — main.js reads the query string in the browser.
-// r7: the same four shots now stage the r7 city — boats at the pier,
-// night-market stalls, crowds on the sidewalks and the Marshal's
-// five-star response in the rain. Nothing else changes server-side.
-
 createServer((request, response) => {
+  const url = new URL(request.url ?? '/', 'http://localhost');
   let pathname;
   try {
-    pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    pathname = decodeURIComponent(url.pathname);
   } catch {
     response.writeHead(400).end('bad request');
     return;
@@ -74,5 +58,5 @@ createServer((request, response) => {
   });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Ember Harbor game/ is on http://localhost:${port}`);
+  console.log(`SOLARA BAY game/ is on http://localhost:${port}`);
 });
