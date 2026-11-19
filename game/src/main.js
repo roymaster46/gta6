@@ -16,6 +16,7 @@
 //   shot=night   — night drive: headlights, lamp glow, 2-star chase, Mission 7
 //   shot=shop    — garage upgrade shop open, Leo in a car by the Pay-n-Spray
 //   shot=finale  — Mission 9 finale: armored van, 5 stars, PD heli overhead
+//   shot=race    — street race mid-flight: Marina Sprint gates + rival + race HUD
 //   shot=start   — title screen over the city
 import { clamp, dist, mulberry32, hashSeed, rand } from './utils.js';
 import { buildCity, WORLD, LANDMARKS, districtAt, districtInfo, randomRoadPoint, randomFreePoint } from './city.js';
@@ -28,6 +29,7 @@ import { createWanted, addCrime, updateWanted, spawnPolice, updatePolice, update
 import { updateBullets, updatePickups, spawnPickups, WEAPONS } from './combat.js';
 import { createMissionState, startMission, updateMissions, updateGang, missionObjectiveText, currentMissionDef, MIDNIGHT_CHECKPOINTS } from './missions.js';
 import { createSideJobState, updateSideJobs } from './sidejobs.js';
+import { createRaceState, updateRaces, startRace, abandonRace, nearestRaceStart } from './races.js';
 import { createChopState, updateChopShop, sellCarToChop, reclaimImpound } from './chopshop.js';
 import { drawWorld, drawHUD, drawTitle, drawPause, drawEndScreen, drawShop } from './render.js';
 import { lightAt, isNight, pedTarget, CYCLE } from './daynight.js';
@@ -54,9 +56,9 @@ const audio = createAudio();
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50 };
+    if (!raw) return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50, raceBest: {} };
     const s = JSON.parse(raw);
-    return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50, ...s };
+    return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50, raceBest: {}, ...s };
   } catch {
     return { money: 50, missionsDone: 0, faresDone: 0, bestMoney: 50 };
   }
@@ -75,6 +77,7 @@ function buildGame() {
     wanted: createWanted(),
     missions: createMissionState(),
     sideJobs: createSideJobState(),
+    races: createRaceState(), // street circuit: best times, wins, active race
     chopshop: createChopState(), // chop-shop cooldown / sales ledger
     impound: null,               // {model, color, upgrades, damage} or null
     cars: [],
@@ -111,6 +114,7 @@ function buildGame() {
         missionsDone: game.player.stats.missionsDone,
         faresDone: game.player.stats.faresDone,
         bestMoney: Math.max(game.saveData.bestMoney, game.player.money),
+        raceBest: { ...game.races.best },
       };
       game.saveData = s;
       try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
@@ -121,6 +125,8 @@ function buildGame() {
   game.cars.push(...spawnParked(city, 12, rng));
   game.peds = spawnPeds(city, 30, rng);
   game.pickups = spawnPickups(city, rng, 10);
+  // Street-circuit best times survive reloads (saved under raceBest).
+  game.races.best = { ...(saveData.raceBest || {}) };
   return game;
 }
 
@@ -317,6 +323,22 @@ function update(dt) {
       }
     }
 
+    // T starts a street race at the nearest start pad (or quits the race
+    // that is running). startRace returns the blocker reason, if any, so
+    // the player always gets told why instead of nothing happening.
+    if (input.wasPressed('race')) {
+      if (game.races.active) {
+        abandonRace(game, 'you quit the race');
+      } else {
+        const pad = nearestRaceStart(game);
+        if (pad) {
+          const msg = startRace(game, pad.circuit.id);
+          if (msg) game.events.push({ type: 'toast', text: msg });
+        } else {
+          game.events.push({ type: 'toast', text: 'No race start pad nearby — look for the checkered pads' });
+        }
+      }
+    }
     if (p.inCar) updatePlayerDriving(game, dt, game.time);
     else updatePlayerOnFoot(game, dt, game.time);
 
@@ -379,6 +401,7 @@ function update(dt) {
     updateGang(game, dt, game.time);
     updateMissions(game, dt, game.time);
     updateSideJobs(game, dt);
+    updateRaces(game, dt); // street circuit: countdown, gates, rival, prizes
     updateChopShop(game, dt); // chop-shop sale cooldown ticks down
     // The streets thin out after dark: top the peds back up toward the
     // target for this hour (daynight.pedTarget), a few at a time.
@@ -634,6 +657,29 @@ function stageShot(name) {
       game.peds.push({ x: s.x, y: s.y, angle: 0, speed: 0, walkSpeed: 30, pace: 1.6, state: 'flee', target: null, shirt: '#d84a4a', skin: '#e8b4b8', hair: '#2a2a2a', fleeTimer: 3, panicTimer: 0, chatTimer: 0, chatPartner: null, dead: false, bob: 0 });
     }
     addParticles(van.x, van.y - 40, '#ffd94a', 8, 90);
+  } else if (name === 'race') {
+    // Street race mid-flight: Leo in a Marina GT on the Marina Sprint,
+    // two gates cleared, rival pace car ahead on the loop, timer running.
+    const car = makeCar(1050, 300, 0, {
+      kind: 'player', driver: 'player', color: '#d84a4a',
+      model: CAR_MODELS.find((m) => m.name === 'Marina GT'),
+    });
+    car.speed = 150;
+    game.cars.push(car);
+    p.inCar = true; p.car = car; p.x = car.x; p.y = car.y;
+    p.money = 1250;
+    startRace(game, 'marina');
+    const a = game.races.active;
+    if (a) {
+      a.countdown = 0; a.started = true; a.time = 42.3;
+      a.totalPassed = 2; a.nextIndex = 3; a.lap = 1;
+      a.rivalDist = 1150;
+      const rp = a.rivalCar;
+      rp.x = 700; rp.y = 450; rp.angle = Math.PI; rp.speed = 64;
+    }
+    game.missions.message = '';
+    game.missions.messageTimer = 0;
+    game.cars.push(...spawnTraffic(game.city, 5, rng));
   } else if (name === 'play' || name === 'end') {
     // Generic staged play / end frames for the starter shot names.
     p.x = 750; p.y = 750;

@@ -24,9 +24,9 @@ if (!existsSync(gameDir)) {
 if (!existsSync(shotsDir)) {
   throw new Error('main.ts: screenshots/ is missing from the repository');
 }
-for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js', 'chopshop.js']) {
+for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js', 'chopshop.js', 'races.js']) {
   if (!existsSync(join(gameDir, 'src', mod))) {
-    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job, radio and chop-shop modules are required`);
+    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job, radio, chop-shop and street-race modules are required`);
   }
 }
 // The city must tile into exactly sixteen districts: the dossier's text
@@ -48,6 +48,15 @@ if (tourStops !== 8) {
   throw new Error(`main.ts: expected 8 grand-tour stops in game/src/missions.js, found ${tourStops}`);
 }
 console.log(`grand tour: ${tourStops} district stops`);
+// The street circuit must ship three circuits: a shorter set would strand
+// the Coastal Grand Prix unlock (it requires a Downtown Loop win) and the
+// start pads the renderer draws from the same list.
+const racesSrc = readFileSync(join(gameDir, 'src', 'races.js'), 'utf8');
+const circuitCount = (racesSrc.match(/id: '(marina|downtown|coastal)',/g) || []).length;
+if (circuitCount !== 3) {
+  throw new Error(`main.ts: expected 3 race circuits in game/src/races.js, found ${circuitCount}`);
+}
+console.log(`street circuit: ${circuitCount} circuits (Marina Sprint, Downtown Loop, Coastal Grand Prix)`);
 // Every screenshot named in shots.json must exist on disk: a stale entry
 // would otherwise ship a dossier pointing at a file that is not there.
 const shotList = JSON.parse(readFileSync(join(repoRoot, 'shots.json'), 'utf8'));

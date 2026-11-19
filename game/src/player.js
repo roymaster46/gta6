@@ -29,7 +29,7 @@ export function createPlayer() {
     ammo: { pistol: Infinity, smg: 0, shotgun: 0, rifle: 0 },
     fireTimer: 0,
     hurtTimer: 0,
-    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0, couriersDone: 0, rampagesDone: 0, rep: 0, chopSales: 0, chopEarned: 0, vigilanteDone: 0 },
+    stats: { missionsDone: 0, faresDone: 0, kills: 0, carsStolen: 0, deaths: 0, playTime: 0, couriersDone: 0, rampagesDone: 0, rep: 0, chopSales: 0, chopEarned: 0, vigilanteDone: 0, racesWon: 0, racesDone: 0 },
     driftTime: 0, // seconds spent handbrake-drifting in the current chain
     drifting: false,
   };

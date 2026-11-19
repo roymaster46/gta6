@@ -15,6 +15,7 @@ import { makeCar, CAR_MODELS } from './vehicles.js';
 import { addCrime } from './police.js';
 import { advanceToNight, isNight } from './daynight.js';
 import { cancelSideJobs, sideJobObjectiveText } from './sidejobs.js';
+import { raceObjectiveText, nearestRaceStart } from './races.js';
 
 export const MISSION_DEFS = [
   {
@@ -203,9 +204,17 @@ export function missionObjectiveText(game) {
     }
     return def.objective;
   }
-  // A side job outranks a taxi fare the same way a mission does.
+  // A street race outranks a side job the same way a mission does — but a
+  // race can only start while no mission is active, so it never outranks one.
+  const race = raceObjectiveText(game);
+  if (race) return race;
   const side = sideJobObjectiveText(game);
   if (side) return side;
+  // Standing on a start pad with a car: the banner advertises the race.
+  const pad = nearestRaceStart(game);
+  if (pad && game.player.inCar) {
+    return `${pad.circuit.name} — press T to race (entry $${pad.circuit.entry}, prize $${pad.circuit.prize})`;
+  }
   if (ms.taxi && !ms.taxi.done) {
     return ms.taxi.hasPassenger
       ? `Taxi: drop the passenger at the marker (${'$' + ms.taxi.fare})`

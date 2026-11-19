@@ -105,9 +105,24 @@ foot and in a car.
   takedowns** (a Viper getaway car flees across the city — wreck it by ramming
   or shooting within 90 seconds for $400). Side jobs pay
   cash and REP; they never interrupt a story mission.
+- **Street racing** — the Solmarina Street Circuit: three circuits on the
+  city's own road grid, each with a checkered start pad you drive to. **Marina
+  Sprint** (2 laps, 4 gates, $50 entry, $300 prize), **Downtown Loop** (2 laps,
+  6 gates, $100 entry, $650 prize) and the **Coastal Grand Prix** (2 laps, 10
+  gates, $200 entry, $1,500 prize — only opens once you have won the Downtown
+  Loop). Press T in a car at a pad to enter: a 3-2-1-GO countdown, then race
+  the gates against a gold pace-rival car running the loop at a fixed speed.
+  Beat the rival to the line for 1st place and the full prize; finish behind
+  it for 2nd and a quarter. Beat your best time on a circuit for a $100 bonus
+  (best times save between sessions). The HUD shows a race panel (timer, lap,
+  gate, 1st/2nd, best, prize), the world shows every gate (cleared green,
+  next pulsing gold), and the minimap marks the pads and the next gate. Quit
+  with T mid-race, wreck the car, leave the car or run out the 10-minute clock
+  and the entry fee is gone — street racing does not do refunds.
 - **REP** — reputation earned from missions (+100), fares (+10), couriers (+15),
   rampages (+25), vigilante takedowns (+30), chop-shop sales (+10), gang kills (+5), drifts (+5), near misses (+2) and shooting
-  down the helicopter (+50). 500 REP per level; the HUD shows your REP level
+  down the helicopter (+50), plus race wins (Marina +40, Downtown +60, Grand
+  Prix +100; 2nd place pays half). 500 REP per level; the HUD shows your REP level
   and progress.
 - **Drift & near misses** — hold the handbrake and steer at speed to build a
   drift chain, then bank it as cash; scream past traffic at 120+ km/h for a
@@ -137,6 +152,7 @@ foot and in a car.
 | Mouse + Click | Aim / shoot |
 | E | Enter / exit nearest car |
 | F | Start next mission (near the garage while wanted: Pay-n-Spray; in a car at the chop shop: sell the car; at the impound lot: reclaim your car) |
+| T | Start a street race at the nearest start pad (in a car) / quit a race in progress |
 | G | Upgrade shop (in a car, near the garage) |
 | N | Nitro boost (car with the kit fitted) |
 | H | Horn (while driving) |
@@ -166,6 +182,7 @@ Deterministic scenes are staged with `?shot=<name>&seed=1`:
 - `?shot=night` — night drive: headlights, lamp glow, Mission 7 Midnight Run
 - `?shot=police` — 4-star roadblock escape
 - `?shot=finale` — Mission 9 The Solmarina Job: armored van, 5-star heat, heli
+- `?shot=race` — street race mid-flight: Marina Sprint, gates, rival pace car, race HUD
 
 The four submission screenshots are `shots.json`: 1-cover = finale, 2-mission =
 mission, 3-night = night, 4-police = police.
@@ -184,6 +201,7 @@ mission, 3-night = night, 4-police = police.
 - `game/src/police.js` — wanted level, notoriety, cop state machine, helicopter, roadblocks
 - `game/src/missions.js` — story chain (12 missions, dialogue, fail reasons) + taxi fares; M12 grand tour visits 8 districts
 - `game/src/sidejobs.js` — courier runs + Viper rampages + vigilante takedowns
+- `game/src/races.js` — street circuit: 3 circuits, countdown, gates, pace rival, prizes, best times, Grand Prix unlock
 - `game/src/radio.js` — 4 radio stations, tracks, chase music
 - `game/src/combat.js` — weapons (incl. rifle), bullets (incl. helicopter hits), pickups
 - `game/src/render.js` — world, night lighting, golden-hour shadows, HUD, shop, circular minimap, menus

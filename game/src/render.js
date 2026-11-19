@@ -19,6 +19,7 @@ import { phaseAt, clockLabel, isGoldenHour } from './daynight.js';
 import { UPGRADES, upgradeLevel, upgradeCost } from './garage.js';
 import { nitroReady, nitroActive } from './garage.js';
 import { sideJobTarget } from './sidejobs.js';
+import { RACE_CIRCUITS, RACE_START_RADIUS, raceTarget, racePosition, formatRaceTime, bestTimeText } from './races.js';
 import { notorietyLevel } from './police.js';
 
 const SKY = '#ffd9a0';
@@ -167,6 +168,25 @@ export function drawWorld(ctx, game, view) {
       ctx.stroke();
     }
     ctx.restore();
+  }
+
+  // Street-circuit start pads: checkered squares on the road with the
+  // circuit name, so the race is discoverable by driving, not just by menu.
+  if (game.races) {
+    for (const c of RACE_CIRCUITS) {
+      const px = c.start.x, py = c.start.y;
+      if (px < x0 - 80 || px > x1 + 80 || py < y0 - 80 || py > y1 + 80) continue;
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 2; j++) {
+          ctx.fillStyle = (i + j) % 2 ? '#111' : '#fff';
+          ctx.fillRect(px - 40 + i * 20, py - 12 + j * 12, 20, 12);
+        }
+      }
+      ctx.fillStyle = '#e8c832';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(c.name.toUpperCase(), px, py - 20);
+    }
   }
 
   // Billboards along the main roads. At night the neon glows: a soft halo
@@ -442,6 +462,35 @@ function drawMarker(ctx, x, y, color, label) {
 
 function drawMissionMarker(ctx, game) {
   const ms = game.missions;
+  // A street race owns the marker while it runs: every gate on the loop,
+  // cleared ones green, the next one pulsing gold with its number.
+  const race = game.races && game.races.active;
+  if (race) {
+    race.circuit.checkpoints.forEach((cp, i) => {
+      // The j-th cleared gate (1-based) is gate j of its lap; gate 0 of
+      // lap 1 is the start pad, cleared the moment the race starts.
+      const passed = (race.lap - 1) * race.circuit.checkpoints.length + i <= race.totalPassed;
+      if (passed) {
+        ctx.fillStyle = '#3ab86a';
+        ctx.beginPath(); ctx.arc(cp.x, cp.y, 10, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('✓', cp.x, cp.y + 4);
+      } else if (i === race.nextIndex) {
+        drawMarker(ctx, cp.x, cp.y, '#e8c832', String(i + 1));
+      } else {
+        ctx.strokeStyle = 'rgba(232,200,50,0.6)';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(cp.x, cp.y, 16, 0, TAU); ctx.stroke();
+        ctx.fillStyle = 'rgba(232,200,50,0.8)';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(i + 1), cp.x, cp.y - 22);
+      }
+    });
+    return;
+  }
   // An active story mission outranks a taxi fare everywhere (banner, world
   // marker, edge arrow): the taxi marker only shows when no mission runs.
   if (ms.stage === 'active' && ms.target) {
@@ -740,6 +789,70 @@ function missionStage(game) {
   return { def, frac: ms.packageCarried ? 1 : 0, label: ms.packageCarried ? 'escape!' : 'in progress' };
 }
 
+function drawRacePanel(ctx, game, view) {
+  const rs = game.races;
+  if (!rs) return;
+  const w = view.w, h = view.h;
+  const a = rs.active;
+  // Results card: a few seconds of glory (or consolation) after the finish.
+  if (!a && rs.results) {
+    const r = rs.results;
+    const rw = 420, rh = 110, rx = (w - rw) / 2, ry = 150;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    roundRect(ctx, rx, ry, rw, rh, 10); ctx.fill();
+    ctx.strokeStyle = r.place === 1 ? '#ffd94a' : '#c8d8e8';
+    ctx.lineWidth = 2;
+    roundRect(ctx, rx, ry, rw, rh, 10); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = r.place === 1 ? '#ffd94a' : '#fff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText(r.place === 1 ? `🏁 1ST PLACE — ${r.name.toUpperCase()}` : `2ND PLACE — ${r.name.toUpperCase()}`, w / 2, ry + 32);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(`${formatRaceTime(r.time)}   •   +$${r.prize.toLocaleString('en-US')}${r.newBest ? '   •   NEW BEST!' : ''}`, w / 2, ry + 62);
+    ctx.fillStyle = '#c8d8e8';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Best time: ' + bestTimeText(rs, r.circuitId), w / 2, ry + 88);
+    ctx.textAlign = 'left';
+    return;
+  }
+  if (!a) return;
+  // Countdown: giant 3-2-1-GO in the middle of the screen.
+  if (a.countdown > 0) {
+    const n = Math.ceil(a.countdown);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.arc(w / 2, h / 2 - 40, 64, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffd94a';
+    ctx.font = 'bold 72px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(n > 3 ? 'READY' : String(n), w / 2, h / 2 - 14);
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(a.circuit.name.toUpperCase(), w / 2, h / 2 + 48);
+    ctx.textAlign = 'left';
+  }
+  // Race panel, top-right under the objective banner.
+  const pw = 250, ph = 96, px = w - pw - 12, py = 96;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  roundRect(ctx, px, py, pw, ph, 8); ctx.fill();
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#e8c832';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.fillText(`🏁 ${a.circuit.name.toUpperCase()}`, px + 12, py + 20);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(formatRaceTime(a.time), px + 12, py + 48);
+  ctx.font = 'bold 13px sans-serif';
+  ctx.fillStyle = racePosition(game) === '1st' ? '#3ab86a' : '#ff9a3c';
+  ctx.textAlign = 'right';
+  ctx.fillText(racePosition(game), px + pw - 12, py + 48);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#c8d8e8';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`Lap ${Math.min(a.lap, a.circuit.laps)}/${a.circuit.laps}  •  Gate ${a.totalPassed + 1}/${a.circuit.laps * a.circuit.checkpoints.length}`, px + 12, py + 70);
+  ctx.fillText(`Best ${bestTimeText(rs, a.circuit.id)}  •  Prize $${a.circuit.prize.toLocaleString('en-US')}`, px + 12, py + 88);
+}
+
 function drawMissionCard(ctx, game) {
   const ms = game.missions;
   const st = missionStage(game);
@@ -897,6 +1010,8 @@ export function drawHUD(ctx, game, view) {
   // PD response panel: the active units, their distance and what they are
   // doing — the chase reads at a glance instead of as bare stars.
   drawPolicePanel(ctx, game);
+  // Street-race panel: timer, lap, gate, position and best time.
+  drawRacePanel(ctx, game, view);
   // Wanted stars top-right.
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   roundRect(ctx, w - 190, 12, 178, 40, 8); ctx.fill();
@@ -961,6 +1076,20 @@ export function drawHUD(ctx, game, view) {
     const hw = ctx.measureText(hint).width + 20;
     roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
     ctx.fillStyle = '#ffd94a';
+    ctx.textAlign = 'center';
+    ctx.fillText(hint, w / 2, h - 121);
+  }
+  // Street-race hint when driving near a start pad with no race running.
+  const pad = game.races && !game.races.active && game.missions.stage !== 'active'
+    ? RACE_CIRCUITS.find((c) => dist(p.x, p.y, c.start.x, c.start.y) < RACE_START_RADIUS)
+    : null;
+  if (p.inCar && p.car && pad) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const hint = `Press T — ${pad.name} (entry $${pad.entry}, prize $${pad.prize})`;
+    ctx.font = 'bold 13px sans-serif';
+    const hw = ctx.measureText(hint).width + 20;
+    roundRect(ctx, (w - hw) / 2, h - 140, hw, 28, 8); ctx.fill();
+    ctx.fillStyle = '#e8c832';
     ctx.textAlign = 'center';
     ctx.fillText(hint, w / 2, h - 121);
   }
@@ -1050,9 +1179,9 @@ export function drawHUD(ctx, game, view) {
   // banner and world marker: active mission first, taxi second.
   const target = (game.missions.stage === 'active' && game.missions.target)
     ? game.missions.target
-    : (game.missions.taxi
+    : (raceTarget(game) || (game.missions.taxi
       ? (game.missions.taxi.hasPassenger ? game.missions.taxi.dropoff : game.missions.taxi.pickup)
-      : null);
+      : null));
   if (target) {
     const sx = target.x - game.camera.x, sy = target.y - game.camera.y;
     if (sx < 0 || sy < 0 || sx > w || sy > h) {
@@ -1127,6 +1256,10 @@ function drawMinimap(ctx, game, view) {
   if (game.impound) dot(LANDMARKS.impound.x, LANDMARKS.impound.y, '#ff9a3c', 4);
   // Mission marker.
   if (game.missions.target && game.missions.stage === 'active') dot(game.missions.target.x, game.missions.target.y, '#ff4ad8', 5);
+  // Street-circuit start pads (gold) and the active race's next gate.
+  for (const c of RACE_CIRCUITS) dot(c.start.x, c.start.y, '#e8c832', 3);
+  const rt = raceTarget(game);
+  if (rt) dot(rt.x, rt.y, '#e8c832', 5);
   // Side-job marker (courier / rampage) when no mission is running.
   const sj = sideJobTarget(game);
   if (sj) dot(sj.x, sj.y, sj.color, 5);
@@ -1179,12 +1312,12 @@ export function drawTitle(ctx, game, view) {
   const story = [
     'Leo Marín came back to Solmarina with $50 and a borrowed jacket.',
     'Drive fares, steal cars, dodge the PD — and pull the heist of the decade.',
-    'Twelve missions. Sixteen districts. One city. No rules but yours.',
+    'Twelve missions. Three street circuits. Sixteen districts. One city. No rules but yours.',
   ];
   story.forEach((line, i) => ctx.fillText(line, w / 2, h / 2 - 58 + i * 22));
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 14px sans-serif';
-  const controls = 'WASD move / drive  •  SHIFT sprint  •  MOUSE aim, CLICK shoot  •  E enter car  •  F mission  •  G garage  •  N nitro  •  C radio  •  H horn  •  P pause  •  M mute  •  R restart';
+  const controls = 'WASD move / drive  •  SHIFT sprint  •  MOUSE aim, CLICK shoot  •  E enter car  •  F mission  •  T street race  •  G garage  •  N nitro  •  C radio  •  H horn  •  P pause  •  M mute  •  R restart';
   ctx.fillText(controls, w / 2, h / 2 + 34);
   // Best stats.
   const best = game.saveData;
