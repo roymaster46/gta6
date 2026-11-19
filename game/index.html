@@ -1,18 +1,21 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="SOLMARINA — an original top-down 2D open-world crime game. Sixteen story missions across sixteen districts, a day/night cycle with rain, four radio stations, a weapon wheel with six guns, courier runs and Viper rampages, a respect system with district control, shops and safehouses (including a $4,000 penthouse), carjacking with driver resistance, a car upgrade shop with nitro and bulletproof tires, three illegal street-race circuits with a championship ladder, roadblocks, SWAT at 5 stars and a police helicopter. Drive fares, steal cars, dodge the PD and pull the heist of the decade.">
-<meta name="theme-color" content="#1a2a3a">
-<title>Solmarina — Open-World Crime Game</title>
-<link rel="stylesheet" href="style.css">
+<title>Ember Harbor — Open-World Crime</title>
+<link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<noscript><div style="color:#fff;background:#1a2a3a;font:16px sans-serif;padding:40px;text-align:center">Solmarina needs JavaScript to run — please enable it and reload.</div></noscript>
-<canvas id="game"></canvas>
-<div id="radio">♪ Sol FM — sunny coastal groove</div>
-<div id="hint">WASD move / drive &nbsp;•&nbsp; SHIFT sprint &nbsp;•&nbsp; Mouse aim, click shoot &nbsp;•&nbsp; E enter / carjack &nbsp;•&nbsp; Q weapon wheel &nbsp;•&nbsp; F mission / shop &nbsp;•&nbsp; T street race &nbsp;•&nbsp; G garage &nbsp;•&nbsp; N nitro &nbsp;•&nbsp; C radio &nbsp;•&nbsp; 1–6 weapons &nbsp;•&nbsp; H horn &nbsp;•&nbsp; P pause &nbsp;•&nbsp; M mute &nbsp;•&nbsp; R restart</div>
-<script type="module" src="src/main.js"></script>
+<canvas id="gl" aria-label="Ember Harbor: a 3D open-world crime game. Drive, steal cars, dodge the police and run eight missions across Rust Harbor."></canvas>
+<canvas id="hud" aria-hidden="true"></canvas>
+<div id="vignette" aria-hidden="true"></div>
+<p id="status" role="status" aria-live="polite"></p>
+<div id="fallback" hidden>
+  <h1>Ember Harbor</h1>
+  <p>This game needs WebGL and JavaScript. Please open it in a desktop browser with WebGL enabled.</p>
+</div>
+<script src="./vendor/three.min.js"></script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

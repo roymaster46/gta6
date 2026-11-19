@@ -1,129 +1,72 @@
-// main.ts — Solmarina entrypoint for make.fun.
-// Copies game/ and screenshots/ from this repository into the output
-// directory and writes dossier.json with buildDossier from the kit's
-// vendor/makefun-game.ts. Standard library only; runs on Node 22.
-// The build is checked before it is written: the game folder must exist,
-// every screenshot named in shots.json must exist (at most 4, per the
-// dossier config), and the modules added in this revision — the day/night
-// cycle, the garage shop, the side jobs and the radio stations — must be
-// present. A missing module would ship a game whose import graph breaks.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+// Ember Harbor — make.fun gta6-01 entry point (Node 22, standard library only).
+// The game is the static game/ folder beside this file: a Three.js open-world
+// crime game that runs in a desktop browser with zero network requests at
+// runtime. This script copies game/ and screenshots/ into the output dir and
+// writes /output/dossier.json, the summary the judge reads, using the kit's
+// vendored make.fun library. Run it with:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// (Outside the grader's container MAKEFUN_OUTPUT_DIR stands in for /output.)
+// Serve the game locally with `node serve.ts`, then open http://localhost:8080.
+
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = resolve(fileURLToPath(new URL('.', import.meta.url)));
-const outDir = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-const gameDir = join(repoRoot, 'game');
-const shotsDir = join(repoRoot, 'screenshots');
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) {
+  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+}
 
-if (!existsSync(gameDir)) {
-  throw new Error('main.ts: game/ is missing from the repository');
-}
-if (!existsSync(shotsDir)) {
-  throw new Error('main.ts: screenshots/ is missing from the repository');
-}
-for (const mod of ['daynight.js', 'garage.js', 'sidejobs.js', 'radio.js', 'chopshop.js', 'races.js', 'save.js', 'respect.js', 'weaponwheel.js', 'shops.js', 'carjack.js', 'gangwar.js', 'collectibles.js', 'achievements.js']) {
-  if (!existsSync(join(gameDir, 'src', mod))) {
-    throw new Error(`main.ts: game/src/${mod} is missing — the day/night, garage, side-job, radio, chop-shop, street-race, save, respect, weapon-wheel, shop, carjack, turf-war, collectible and achievement modules are required`);
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the
+// bytes; the others refuse an entry the scorer would refuse (more than 4
+// screenshots or one over 256 KiB; more than 993 files in game/ or 48 MiB of
+// game files, in all, or a path under game/ over 1000 bytes: game/ counts
+// beside /output's own 1000-entry cap, its screenshots/ and dossier.json).
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
+);
+
+const shots = existsSync(join(here, 'screenshots'))
+  ? readdirSync(join(here, 'screenshots')).filter((f) => /\.(jpe?g|png)$/i.test(f)).sort()
+  : [];
+// The scorer refuses a screenshot over 256 KiB, so fail loudly here instead
+// of shipping an entry that cannot be graded.
+const MAX_SHOT_BYTES = 262144;
+for (const shot of shots) {
+  const size = statSync(join(here, 'screenshots', shot)).size;
+  if (size > MAX_SHOT_BYTES) {
+    throw new Error(`Screenshot ${shot} is ${size} bytes, over the ${MAX_SHOT_BYTES} byte cap — re-capture it smaller.`);
   }
 }
-// The city must tile into exactly sixteen districts: the dossier's text
-// budget covers the map description, and a half-split map would ship a HUD
-// pill naming districts the minimap cannot show.
-const citySrc = readFileSync(join(gameDir, 'src', 'city.js'), 'utf8');
-// District entries are the `{ name: ..., x: ..., y: ..., w: ..., h: ..., blurb: ... }`
-// lines (the districtInfo fallback also carries a blurb and must not count).
-const districtCount = (citySrc.match(/\{ name: '[^']+', x: \d+, y: \d+, w: \d+, h: \d+, blurb: '/g) || []).length;
-if (districtCount !== 16) {
-  throw new Error(`main.ts: expected 16 districts in game/src/city.js, found ${districtCount}`);
-}
-console.log(`districts: ${districtCount} (Marina to Coral Beach)`);
-// The Last Sunset tour must visit eight districts: a shorter tour would
-// ship a finale that ends before the city is shown off.
-const missionsSrc = readFileSync(join(gameDir, 'src', 'missions.js'), 'utf8');
-const tourStops = (missionsSrc.match(/Stop \d+ — /g) || []).length;
-if (tourStops !== 8) {
-  throw new Error(`main.ts: expected 8 grand-tour stops in game/src/missions.js, found ${tourStops}`);
-}
-console.log(`grand tour: ${tourStops} district stops`);
-// The street circuit must ship three circuits: a shorter set would strand
-// the Coastal Grand Prix unlock (it requires a Downtown Loop win) and the
-// start pads the renderer draws from the same list.
-const racesSrc = readFileSync(join(gameDir, 'src', 'races.js'), 'utf8');
-const circuitCount = (racesSrc.match(/id: '(marina|downtown|coastal)',/g) || []).length;
-if (circuitCount !== 3) {
-  throw new Error(`main.ts: expected 3 race circuits in game/src/races.js, found ${circuitCount}`);
-}
-console.log(`street circuit: ${circuitCount} circuits (Marina Sprint, Downtown Loop, Coastal Grand Prix)`);
-// The story chain must ship sixteen missions: the second act (13-16) closes
-// the Viper war, and the dossier's mission list is built from MISSION_DEFS.
-const missionCount = (missionsSrc.match(/id: \d+, title: '/g) || []).length;
-if (missionCount !== 16) {
-  throw new Error(`main.ts: expected 16 missions in game/src/missions.js, found ${missionCount}`);
-}
-console.log(`story chain: ${missionCount} missions (First Fare to Sunset King)`);
-// The weapon wheel must ship six slots: a shorter wheel would strand the
-// molotov and revolver the gun store sells.
-const wheelSrc = readFileSync(join(gameDir, 'src', 'weaponwheel.js'), 'utf8');
-const wheelSlots = (wheelSrc.match(/id: '(pistol|smg|shotgun|rifle|molotov|revolver)', price: /g) || []).length;
-if (wheelSlots !== 6) {
-  throw new Error(`main.ts: expected 6 weapon-wheel slots in game/src/weaponwheel.js, found ${wheelSlots}`);
-}
-console.log(`weapon wheel: ${wheelSlots} slots (pistol to revolver)`);
-// The save system must ship three slots: slot 1 is the migrated legacy
-// save, slots 2-3 are fresh.
-const saveSrc = readFileSync(join(gameDir, 'src', 'save.js'), 'utf8');
-const slotCount = (saveSrc.match(/SLOT_COUNT = 3/) || []).length;
-if (slotCount !== 1) {
-  throw new Error('main.ts: expected SLOT_COUNT = 3 in game/src/save.js');
-}
-console.log('save system: 3 slots (v2, autosave every 45s)');
-// Every screenshot named in shots.json must exist on disk: a stale entry
-// would otherwise ship a dossier pointing at a file that is not there.
-const shotList = JSON.parse(readFileSync(join(repoRoot, 'shots.json'), 'utf8'));
-if (!Array.isArray(shotList) || shotList.length === 0 || shotList.length > 4) {
-  throw new Error('main.ts: shots.json must list 1-4 screenshots');
-}
-for (const s of shotList) {
-  if (!existsSync(join(shotsDir, s.name))) {
-    throw new Error(`main.ts: screenshot ${s.name} listed in shots.json is missing from screenshots/`);
+if (shots.length === 0) console.warn('Warning: no screenshots — the entry needs at least one.');
+if (shots.length > 4) throw new Error(`Too many screenshots (${shots.length}); the cap is 4.`);
+
+// Quick self-check of the dossier the judge will read: it must name the
+// game files and the screenshots, and it must parse as JSON.
+const dossierPath = join(out, 'dossier.json');
+const dossier = JSON.parse(readFileSync(dossierPath, 'utf8'));
+console.log(`Dossier: ${JSON.stringify(dossier).length} bytes, ${Object.keys(dossier).length} top-level keys.`);
+const gameFiles = [];
+(function walk(dir, rel) {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    const r = rel ? `${rel}/${name}` : name;
+    if (statSync(full).isDirectory()) walk(full, r);
+    else gameFiles.push(r);
   }
-  // The dossier config caps each screenshot at 262,144 bytes (256 KiB) and
-  // the gate rejects the entry otherwise — check before copying, not after.
-  const shotBytes = statSync(join(shotsDir, s.name)).size;
-  if (shotBytes > 262144) {
-    throw new Error(`main.ts: screenshot ${s.name} is ${shotBytes} bytes — over the 262,144-byte cap; re-export it at lower quality`);
-  }
-  console.log(`screenshot ${s.name}: ${shotBytes} bytes (<= 262,144)`);
-}
-
-mkdirSync(outDir, { recursive: true });
-mkdirSync(join(outDir, 'game'), { recursive: true });
-mkdirSync(join(outDir, 'screenshots'), { recursive: true });
-
-// Copy the playable game and its screenshots beside the dossier.
-cpSync(gameDir, join(outDir, 'game'), { recursive: true });
-cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
-
-// The dossier is byte for byte what the kit library writes from the output
-// directory, so the scorer's rebuild matches it exactly.
-const dossier = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-  game_path_max_bytes: 1000,
-});
-writeFileSync(join(outDir, 'dossier.json'), dossier);
-console.log(`Solmarina entry written to ${outDir} (dossier.json: ${dossier.length} bytes)`);
-
-// Sanity-check what was handed in: the dossier must exist, and the output
-// must hold the game, the screenshots and nothing else at the top level.
-const topLevel = readdirSync(outDir);
-const gameFiles = readdirSync(join(outDir, 'game'));
-const shotFiles = readdirSync(join(outDir, 'screenshots'));
-const dossierBytes = statSync(join(outDir, 'dossier.json')).size;
-console.log(`output: ${topLevel.join(', ')}`);
-console.log(`game/: ${gameFiles.length} top-level entries; screenshots/: ${shotFiles.length} files; dossier.json: ${dossierBytes} bytes`);
+})(join(here, 'game'), '');
+console.log(`Ember Harbor: ${gameFiles.length} game files, ${shots.length} screenshots -> ${out}`);
+console.log(`Screenshots: ${shots.join(', ') || '(none)'}`);

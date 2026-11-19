@@ -1,158 +1,139 @@
-// utils.js — math, seeded RNG and small helpers for Solmarina.
-// Every other module imports from here; nothing here touches the DOM.
-export const TAU = Math.PI * 2;
-export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-export const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
-export const lerp = (a, b, t) => a + (b - a) * t;
-export const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
-export const dist2 = (x1, y1, x2, y2) => {
-  const dx = x2 - x1, dy = y2 - y1;
-  return dx * dx + dy * dy;
-};
-export const angleTo = (x1, y1, x2, y2) => Math.atan2(y2 - y1, x2 - x1);
-export function angleDiff(a, b) {
-  let d = (b - a) % TAU;
-  if (d > Math.PI) d -= TAU;
-  if (d < -Math.PI) d += TAU;
-  return d;
+// Ember Harbor — pure helpers. No DOM, no THREE, no window here, so Node
+// tests can import this file directly. Every function is deterministic for a
+// given input; randomness always flows through a seeded generator.
+
+export function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
 }
-export function turnToward(a, b, maxStep) {
-  const d = angleDiff(a, b);
-  return a + clamp(d, -maxStep, maxStep);
+
+export function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
-// Shortest-path interpolation between two angles (0..1).
+
+export function smoothstep(t) {
+  const x = clamp(t, 0, 1);
+  return x * x * (3 - 2 * x);
+}
+
+export function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
 export function angleLerp(a, b, t) {
-  return a + angleDiff(a, b) * clamp01(t);
+  return a + wrapAngle(b - a) * clamp(t, 0, 1);
 }
-// Smooth 0..1 ramp between two edges (smoothstep).
-export function smoothstep(a, b, x) {
-  const f = clamp01((x - a) / (b - a));
-  return f * f * (3 - 2 * f);
+
+export function dist2(ax, az, bx, bz) {
+  const dx = ax - bx;
+  const dz = az - bz;
+  return dx * dx + dz * dz;
 }
-export const rand = (a = 1, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
-export const randInt = (a, b) => Math.floor(rand(a, b + 1));
-export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-export const choice = (arr, rng) => arr[Math.floor(rng() * arr.length)];
-// Pick n distinct entries from an array (fewer when the array is shorter).
-export function pickN(arr, n, rng = Math.random) {
-  const copy = arr.slice();
-  const out = [];
-  while (copy.length && out.length < n) {
-    out.push(copy.splice(Math.floor(rng() * copy.length), 1)[0]);
-  }
-  return out;
+
+export function dist(ax, az, bx, bz) {
+  return Math.sqrt(dist2(ax, az, bx, bz));
 }
-// Fisher-Yates shuffle, in place, driven by the given rng (seeded when the
-// caller passes one, so staged scenes stay deterministic).
-export function shuffle(arr, rng = Math.random) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
+
+export function degToRad(d) {
+  return (d * Math.PI) / 180;
 }
-// Weighted pick: entries are [value, weight]; returns a value.
-export function pickWeighted(entries, rng = Math.random) {
-  let total = 0;
-  for (const [, w] of entries) total += w;
-  let r = rng() * total;
-  for (const [v, w] of entries) {
-    r -= w;
-    if (r <= 0) return v;
-  }
-  return entries[entries.length - 1][0];
-}
-// Deterministic 0..1 hash of a grid position — used for lit windows at
-// night, so the same building always has the same lit windows.
-export function hash2(x, y) {
-  let h = (Math.floor(x) * 374761393 + Math.floor(y) * 668265263) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h = (h ^ (h >>> 16)) >>> 0;
-  return h / 4294967296;
-}
-// Deterministic RNG (mulberry32) so ?shot= scenes stage identically.
-export function mulberry32(seed) {
-  let s = seed >>> 0;
-  return function rng() {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+
+// Mulberry32: small fast seeded PRNG with a clean 32-bit state.
+export function createRng(seed) {
+  let s = (seed >>> 0) || 1;
+  return function next() {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-export function hashSeed(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+
+export function rngInt(rng, lo, hi) {
+  return lo + Math.floor(rng() * (hi - lo + 1));
+}
+
+export function rngPick(rng, arr) {
+  return arr[Math.floor(rng() * arr.length)];
+}
+
+export function rngRange(rng, lo, hi) {
+  return lo + rng() * (hi - lo);
+}
+
+export function shuffle(rng, arr) {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
   }
-  return h >>> 0;
+  return out;
 }
-export function rectsOverlap(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// 2D hash -> stable pseudo-random in [0,1) for a grid cell. Used to give
+// every city block a fixed look without storing a random table.
+export function hash2(x, z, seed) {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(z | 0, 668265263) + Math.imul(seed | 0, 974634211)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
-export function circleRect(cx, cy, r, rect) {
-  const nx = clamp(cx, rect.x, rect.x + rect.w);
-  const ny = clamp(cy, rect.y, rect.y + rect.h);
-  return dist2(cx, cy, nx, ny) < r * r;
+
+export function formatMoney(n) {
+  const v = Math.round(n);
+  const sign = v < 0 ? '-' : '';
+  return `${sign}$${Math.abs(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
-// Push a circle out of a rect; returns true when a collision happened.
-export function resolveCircleRect(p, r, rect) {
-  const nx = clamp(p.x, rect.x, rect.x + rect.w);
-  const ny = clamp(p.y, rect.y, rect.y + rect.h);
-  const dx = p.x - nx, dy = p.y - ny;
-  const d2 = dx * dx + dy * dy;
-  if (d2 >= r * r) return false;
-  if (d2 === 0) {
-    // Centre inside the rect: push out along the smallest penetration axis.
-    const left = p.x - rect.x, right = rect.x + rect.w - p.x;
-    const top = p.y - rect.y, bottom = rect.y + rect.h - p.y;
-    const m = Math.min(left, right, top, bottom);
-    if (m === left) p.x = rect.x - r;
-    else if (m === right) p.x = rect.x + rect.w + r;
-    else if (m === top) p.y = rect.y - r;
-    else p.y = rect.y + rect.h + r;
-    return true;
-  }
-  const d = Math.sqrt(d2);
-  p.x = nx + (dx / d) * r;
-  p.y = ny + (dy / d) * r;
-  return true;
+
+export function formatClock(dayTime) {
+  const hours = Math.floor(dayTime * 24);
+  const minutes = Math.floor((dayTime * 24 - hours) * 60);
+  const hh = String(hours).padStart(2, '0');
+  const mm = String(minutes).padStart(2, '0');
+  return `${hh}:${mm}`;
 }
-// Reputation: 500 points per level, level 1 at 0 points. Returns the level
-// and how far into it the player is (for the REP progress bar on the HUD).
-export function repLevel(rep) {
-  const level = Math.floor(rep / 500) + 1;
-  return { level, into: rep % 500, need: 500 };
+
+export function formatTime(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
-export function fmtMoney(n) {
-  return '$' + Math.floor(n).toLocaleString('en-US');
+
+export function starsText(stars) {
+  let out = '';
+  for (let i = 0; i < 5; i += 1) out += i < stars ? '★' : '☆';
+  return out;
 }
-export function fmtTime(sec) {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return m + ':' + String(s).padStart(2, '0');
+
+export function isOnRoad(x, z) {
+  // Streets run on the grid lines: a point is on a road when it is close to
+  // a multiple of BLOCK on either axis (inside the half world).
+  const bx = Math.abs(x) % 92;
+  const bz = Math.abs(z) % 92;
+  const nearX = Math.min(bx, 92 - bx) < 8;
+  const nearZ = Math.min(bz, 92 - bz) < 8;
+  return nearX || nearZ;
 }
-// Short countdown for timed objectives: "87s" (never negative).
-export function fmtCountdown(sec) {
-  return Math.max(0, Math.ceil(sec)) + 's';
+
+export function nearestStreetCoord(v) {
+  return Math.round(v / 92) * 92;
 }
-// "mm:ss" for race timers and survival clocks (same shape as fmtTime, but
-// named for what it measures so call sites read clearly).
-export function fmtDuration(sec) {
-  const s = Math.max(0, Math.floor(sec));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+export function clampToWorld(x, z, margin) {
+  const lim = 460 - (margin || 6);
+  return { x: clamp(x, -lim, lim), z: clamp(z, -lim, lim) };
 }
-// Wrap an angle to (-PI, PI].
-export function clampAngle(a) {
-  while (a > Math.PI) a -= Math.PI * 2;
-  while (a <= -Math.PI) a += Math.PI * 2;
-  return a;
+
+export function moveToward(v, target, maxDelta) {
+  if (v < target) return Math.min(v + maxDelta, target);
+  if (v > target) return Math.max(v - maxDelta, target);
+  return v;
 }
-export function shade(hex, amt) {
-  // Lighten (amt>0) or darken (amt<0) a #rrggbb colour by amt (-100..100).
-  const n = parseInt(hex.slice(1), 16);
-  let r = (n >> 16) + amt, g = ((n >> 8) & 255) + amt, b = (n & 255) + amt;
-  r = clamp(r, 0, 255); g = clamp(g, 0, 255); b = clamp(b, 0, 255);
-  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+
+export function deepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
